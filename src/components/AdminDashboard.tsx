@@ -1,0 +1,2242 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Users,
+  TrendingUp,
+  CreditCard,
+  Download,
+  AlertTriangle,
+  CheckCircle,
+  MapPin,
+  Settings,
+  ShieldCheck,
+  Globe,
+  Database,
+  Trash,
+  Trash2,
+  PhoneCall,
+  Search,
+  Check,
+  RefreshCw,
+  Wifi,
+  Plus,
+  X,
+  Upload,
+  Image as ImageIcon,
+  Eye
+} from 'lucide-react';
+import { CustomerUser, PaymentRecord, SupportTicket, WifiPackage } from '../types';
+import { generateCustomerPDFReport } from '../lib/pdfGenerator';
+import { PACKAGES } from './Home';
+import Logo from './Logo';
+import ImagePreviewModal from './ImagePreviewModal';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend
+} from 'recharts';
+import * as XLSX from 'xlsx';
+
+// Leaflet import for admin map visualization
+import L from 'leaflet';
+
+interface AdminDashboardProps {
+  customers: CustomerUser[];
+  supportTickets: SupportTicket[];
+  onRefreshData: () => void;
+  onUpdateCustomerStatus: (id: string, status: 'pending' | 'active' | 'suspended') => Promise<void>;
+  onVerifyPayment: (userId: string, paymentId: string) => Promise<void>;
+  onRejectPayment?: (userId: string, paymentId: string) => Promise<void>;
+  whatsappLogs?: any[];
+  companySettings?: { name: string; address: string; logoText: string; themeColor: string; logoUrl?: string; promos?: string[] };
+  onUpdateCompanySettings?: (newSettings: { name: string; address: string; logoText: string; themeColor: string; logoUrl?: string }) => Promise<boolean>;
+}
+
+export default function AdminDashboard({
+  customers,
+  supportTickets,
+  onRefreshData,
+  onUpdateCustomerStatus,
+  onVerifyPayment,
+  onRejectPayment,
+  whatsappLogs,
+  companySettings,
+  onUpdateCompanySettings
+}: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'payments' | 'tickets' | 'packages' | 'company_settings' | 'coverage'>('overview');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedUserForMap, setSelectedUserForMap] = useState<CustomerUser | null>(null);
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // Company Settings form states
+  const [companyNameInput, setCompanyNameInput] = useState(companySettings?.name || 'Taranet WiFi');
+  const [companyAddressInput, setCompanyAddressInput] = useState(companySettings?.address || '');
+  const [companyLogoTextInput, setCompanyLogoTextInput] = useState(companySettings?.logoText || 'TARANET');
+  const [companyLogoUrlInput, setCompanyLogoUrlInput] = useState(companySettings?.logoUrl || '');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
+
+  // Promo Images states
+  const [promosList, setPromosList] = useState<string[]>(companySettings?.promos || []);
+  const [newPromoImage, setNewPromoImage] = useState<string>('');
+  const [uploadingPromo, setUploadingPromo] = useState(false);
+
+  // Sync inputs with props if they load later
+  useEffect(() => {
+    if (companySettings) {
+      setCompanyNameInput(companySettings.name);
+      setCompanyAddressInput(companySettings.address);
+      setCompanyLogoTextInput(companySettings.logoText);
+      setCompanyLogoUrlInput(companySettings.logoUrl || '');
+      if (companySettings.promos) {
+        setPromosList(companySettings.promos);
+      }
+    }
+  }, [companySettings]);
+
+  // Image preview lightbox modal state
+  const [previewModal, setPreviewModal] = useState<{
+    isOpen: boolean;
+    imageUrl: string;
+    title: string;
+    subtitle?: string;
+  }>({
+    isOpen: false,
+    imageUrl: '',
+    title: '',
+    subtitle: '',
+  });
+
+  // Packages management states
+  const [packagesList, setPackagesList] = useState<WifiPackage[]>([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
+  const [newPkgName, setNewPkgName] = useState('');
+  const [newPkgSpeed, setNewPkgSpeed] = useState('');
+  const [newPkgPrice, setNewPkgPrice] = useState('');
+  const [newPkgType, setNewPkgType] = useState<'home' | 'business'>('home');
+  const [newPkgFeatures, setNewPkgFeatures] = useState('');
+  const [newPkgPopular, setNewPkgPopular] = useState(false);
+  const [packageToDelete, setPackageToDelete] = useState<WifiPackage | null>(null);
+
+  // Customer deletion state
+  const [customerToDelete, setCustomerToDelete] = useState<CustomerUser | null>(null);
+
+  // Coverage states
+  const [coverageList, setCoverageList] = useState<any[]>([]);
+  const [loadingCoverage, setLoadingCoverage] = useState(false);
+  const [newCityName, setNewCityName] = useState('');
+  const [newCityType, setNewCityType] = useState('Kota');
+  const [newKecName, setNewKecName] = useState<{ [city: string]: string }>({});
+  const [newKelName, setNewKelName] = useState<{ [kecKey: string]: string }>({});
+
+  // Inline delete confirmations for coverage
+  const [cityToDelete, setCityToDelete] = useState<string | null>(null);
+  const [kecToDelete, setKecToDelete] = useState<{ cityName: string; name: string } | null>(null);
+  const [kelToDelete, setKelToDelete] = useState<{ cityName: string; kecamatanName: string; name: string } | null>(null);
+
+  const fetchCoverageList = async () => {
+    setLoadingCoverage(true);
+    try {
+      const response = await fetch('/api/coverage');
+      if (response.ok) {
+        const data = await response.json();
+        setCoverageList(data || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch coverage:', err);
+    } finally {
+      setLoadingCoverage(false);
+    }
+  };
+
+  const fetchPackagesList = async () => {
+    setLoadingPackages(true);
+    try {
+      const res = await fetch('/api/packages');
+      if (res.ok) {
+        const data = await res.json();
+        setPackagesList(data.packages || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch packages:', err);
+    } finally {
+      setLoadingPackages(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'coverage') {
+      fetchCoverageList();
+    } else if (activeTab === 'packages') {
+      fetchPackagesList();
+    }
+  }, [activeTab]);
+
+  // Initial packages fetch for overview analytics
+  useEffect(() => {
+    fetchPackagesList();
+  }, []);
+
+  // ---------------- Coverage Handlers ----------------
+  const handleAddCity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCityName.trim()) return;
+
+    try {
+      const response = await fetch('/api/coverage/city', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cityName: newCityName.trim(), regionType: newCityType })
+      });
+      if (response.ok) {
+        setNewCityName('');
+        await fetchCoverageList();
+        showToast('Kota/Kabupaten berhasil ditambahkan!');
+      } else {
+        const data = await response.json();
+        showToast(data.message || 'Gagal menambahkan kota.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan saat menambah kota.', 'error');
+    }
+  };
+
+  const handleDeleteCity = async (cityName: string) => {
+    try {
+      const response = await fetch('/api/coverage/city/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cityName })
+      });
+      if (response.ok) {
+        setCityToDelete(null);
+        await fetchCoverageList();
+        showToast(`Wilayah ${cityName} berhasil dihapus.`);
+      } else {
+        showToast('Gagal menghapus kota.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  const handleAddKecamatan = async (cityName: string) => {
+    const name = newKecName[cityName];
+    if (!name || !name.trim()) return;
+
+    try {
+      const response = await fetch('/api/coverage/kecamatan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cityName, name: name.trim() })
+      });
+      if (response.ok) {
+        setNewKecName(prev => ({ ...prev, [cityName]: '' }));
+        await fetchCoverageList();
+        showToast(`Kecamatan ${name} berhasil ditambahkan!`);
+      } else {
+        const data = await response.json();
+        showToast(data.message || 'Gagal menambahkan kecamatan.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  const handleDeleteKecamatan = async (cityName: string, name: string) => {
+    try {
+      const response = await fetch('/api/coverage/kecamatan/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cityName, name })
+      });
+      if (response.ok) {
+        setKecToDelete(null);
+        await fetchCoverageList();
+        showToast(`Kecamatan ${name} berhasil dihapus.`);
+      } else {
+        showToast('Gagal menghapus kecamatan.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  const handleAddKelurahan = async (cityName: string, kecamatanName: string) => {
+    const key = `${cityName}-${kecamatanName}`;
+    const name = newKelName[key];
+    if (!name || !name.trim()) return;
+
+    try {
+      const response = await fetch('/api/coverage/kelurahan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cityName, kecamatanName, name: name.trim() })
+      });
+      if (response.ok) {
+        setNewKelName(prev => ({ ...prev, [key]: '' }));
+        await fetchCoverageList();
+        showToast(`Kelurahan ${name} berhasil ditambahkan!`);
+      } else {
+        const data = await response.json();
+        showToast(data.message || 'Gagal menambahkan kelurahan.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  const handleDeleteKelurahan = async (cityName: string, kecamatanName: string, name: string) => {
+    try {
+      const response = await fetch('/api/coverage/kelurahan/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cityName, kecamatanName, name })
+      });
+      if (response.ok) {
+        setKelToDelete(null);
+        await fetchCoverageList();
+        showToast(`Kelurahan ${name} berhasil dihapus.`);
+      } else {
+        showToast('Gagal menghapus kelurahan.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  // ---------------- Packages Handlers ----------------
+  const handleAddPackage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPkgName.trim() || !newPkgSpeed.trim() || !newPkgPrice) {
+      showToast('Harap isi nama, kecepatan, dan harga paket.', 'error');
+      return;
+    }
+
+    try {
+      const featuresArr = newPkgFeatures
+        .split('\n')
+        .map(f => f.trim())
+        .filter(Boolean);
+
+      const res = await fetch('/api/packages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newPkgName.trim(),
+          speed: newPkgSpeed.trim(),
+          price: Number(newPkgPrice),
+          type: newPkgType,
+          features: featuresArr,
+          popular: newPkgPopular
+        })
+      });
+
+      if (res.ok) {
+        setNewPkgName('');
+        setNewPkgSpeed('');
+        setNewPkgPrice('');
+        setNewPkgFeatures('');
+        setNewPkgPopular(false);
+        await fetchPackagesList();
+        showToast('Paket WiFi baru berhasil ditambahkan!');
+      } else {
+        const data = await res.json();
+        showToast(data.message || 'Gagal menambahkan paket.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  const handleDeletePackage = async (id: string) => {
+    try {
+      const res = await fetch('/api/packages/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        setPackageToDelete(null);
+        await fetchPackagesList();
+        showToast('Paket WiFi berhasil dihapus.');
+      } else {
+        showToast('Gagal menghapus paket.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  // ---------------- Customer Deletion Handler ----------------
+  const handleDeleteCustomer = async (id: string) => {
+    try {
+      const res = await fetch('/api/customers/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        setCustomerToDelete(null);
+        onRefreshData();
+        showToast('Pelanggan berhasil dihapus dari sistem.');
+      } else {
+        showToast('Gagal menghapus pelanggan.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  // ---------------- Promo Images Handlers ----------------
+  const handleUploadPromo = async () => {
+    if (!newPromoImage) {
+      showToast('Silakan pilih gambar terlebih dahulu.', 'error');
+      return;
+    }
+
+    setUploadingPromo(true);
+    try {
+      const res = await fetch('/api/settings/promos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promoImageBase64: newPromoImage })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPromosList(data.promos || []);
+        setNewPromoImage('');
+        showToast('Gambar banner promo berhasil diunggah!');
+      } else {
+        showToast('Gagal mengunggah gambar promo.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan saat mengunggah promo.', 'error');
+    } finally {
+      setUploadingPromo(false);
+    }
+  };
+
+  const handleDeletePromo = async (index: number) => {
+    try {
+      const res = await fetch('/api/settings/promos/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPromosList(data.promos || []);
+        showToast('Gambar banner promo berhasil dihapus.');
+      } else {
+        showToast('Gagal menghapus gambar promo.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Kesalahan jaringan.', 'error');
+    }
+  };
+
+  const handleSaveCompanySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onUpdateCompanySettings) return;
+
+    setSavingSettings(true);
+    const success = await onUpdateCompanySettings({
+      name: companyNameInput,
+      address: companyAddressInput,
+      logoText: companyLogoTextInput,
+      themeColor: '#2563eb',
+      logoUrl: companyLogoUrlInput
+    });
+    setSavingSettings(false);
+    if (success) {
+      showToast('Pengaturan identitas perusahaan berhasil diperbarui!');
+    } else {
+      showToast('Gagal memperbarui pengaturan.', 'error');
+    }
+  };
+
+  const handleSendWhatsAppReminder = async (userId: string, paymentId: string, type: 'before_due' | 'overdue') => {
+    setSendingReminderId(`${paymentId}-${type}`);
+    try {
+      const response = await fetch('/api/whatsapp/remind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, paymentId, type })
+      });
+      if (response.ok) {
+        alert('Notifikasi Pengingat WhatsApp berhasil dikirim ke pelanggan!');
+        onRefreshData(); // refresh logs
+      } else {
+        alert('Gagal mengirim pengingat WhatsApp.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Kesalahan jaringan.');
+    } finally {
+      setSendingReminderId(null);
+    }
+  };
+
+  // Stats
+  const totalCustomers = customers.length;
+  const activeCustomers = customers.filter((c) => c.status === 'active').length;
+  const pendingCustomers = customers.filter((c) => c.status === 'pending').length;
+  const suspendedCustomers = customers.filter((c) => c.status === 'suspended').length;
+
+  // Revenue calculation
+  let totalRevenue = 0;
+  let dailyRevenueHistory: { date: string; revenue: number }[] = [];
+  let packageCount: { [key: string]: number } = {};
+
+  // Seed sample dates for real-time visual analytics
+  const today = new Date();
+  for (let i = 14; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(today.getDate() - i);
+    const dateStr = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    dailyRevenueHistory.push({ date: dateStr, revenue: 0 });
+  }
+
+  // Calculate actual transaction revenue
+  customers.forEach((c) => {
+    // Count packages
+    const pkg = PACKAGES.find((p) => p.id === c.packageId);
+    if (pkg) {
+      packageCount[pkg.name] = (packageCount[pkg.name] || 0) + 1;
+    }
+
+    c.payments.forEach((p) => {
+      if (p.status === 'paid') {
+        totalRevenue += p.amount;
+
+        // Spread payments across the mockup daily history for realistic visuals
+        const paymentDateObj = new Date(p.date);
+        const dateStr = paymentDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        const dayMatch = dailyRevenueHistory.find((dh) => dh.date === dateStr);
+        if (dayMatch) {
+          dayMatch.revenue += p.amount;
+        } else {
+          // Fallback - add to today's or yesterday's bin
+          const fallbackIndex = Math.floor(Math.random() * dailyRevenueHistory.length);
+          dailyRevenueHistory[fallbackIndex].revenue += p.amount;
+        }
+      }
+    });
+  });
+
+  // Recharts colors
+  const COLORS = ['#2563eb', '#4f46e5', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
+
+  const pieData = Object.keys(packageCount).map((key) => ({
+    name: key,
+    value: packageCount[key]
+  }));
+
+  // List of pending verification payments reported by customers
+  const pendingPaymentsList: { customer: CustomerUser; payment: PaymentRecord }[] = [];
+  customers.forEach((c) => {
+    (c.payments || []).forEach((p) => {
+      if (p.status === 'pending_verification') {
+        pendingPaymentsList.push({ customer: c, payment: p });
+      }
+    });
+  });
+
+  // WhatsApp automatic log simulations state
+  const [waLogs, setWaLogs] = useState<{ id: string; phone: string; message: string; time: string }[]>([]);
+
+  // Keep waLogs synchronized with props or default simulated ones
+  useEffect(() => {
+    if (whatsappLogs && whatsappLogs.length > 0) {
+      setWaLogs(whatsappLogs);
+    }
+  }, [whatsappLogs]);
+
+  // Function to simulate sending WhatsApp
+  const logWhatsAppNotification = (phone: string, customerName: string, period: string, amount: number) => {
+    const log = {
+      id: Math.random().toString(36).substr(2, 9),
+      phone,
+      message: `[WhatsApp Otomatis] Halo ${customerName}, Pembayaran tagihan Taranet Wifi Anda untuk periode ${period} sebesar Rp ${amount.toLocaleString('id-ID')} telah BERHASIL diverifikasi dan Lunas. Internet Anda tetap aktif & stabil tanpa FUP. Terima kasih!`,
+      time: new Date().toLocaleTimeString('id-ID')
+    };
+    setWaLogs((prev) => [log, ...prev]);
+  };
+
+  // Export to Excel using xlsx sheetjs library
+  const handleExportToExcel = () => {
+    const rows: any[] = [];
+
+    customers.forEach((c) => {
+      const pkg = PACKAGES.find((p) => p.id === c.packageId);
+      c.payments.forEach((p) => {
+        rows.push({
+          'ID Pelanggan': c.id,
+          'Nama Pelanggan': c.name,
+          'Email': c.email,
+          'No Handphone': c.phone,
+          'Alamat': c.address,
+          'Koordinat GPS': `${c.coordinates[0]}, ${c.coordinates[1]}`,
+          'Paket Berlangganan': pkg?.name || 'Unknown',
+          'Kecepatan': pkg?.speed || 'Unknown',
+          'Biaya Bulanan': pkg?.price || 0,
+          'Periode Tagihan': p.billingPeriod,
+          'Jumlah Bayar': p.amount,
+          'Status Pembayaran': p.status.toUpperCase(),
+          'Metode Bayar': p.method || 'N/A',
+          'Tanggal Transaksi': p.date
+        });
+      });
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Transaksi Taranet');
+
+    // Auto fit column widths
+    const max_width = rows.reduce((w, r) => Math.max(w, Object.values(r).join('').length / 8), 10);
+    worksheet['!cols'] = [{ wch: max_width }];
+
+    // Generate Excel File
+    XLSX.writeFile(workbook, `Laporan_Transaksi_Taranet_Wifi_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // Google Apps Script template copy trigger helper
+  const handleCopyAppsScript = () => {
+    const scriptCode = `/**
+ * Google Apps Script Web App Template
+ * Copy and deploy this code in script.google.com as a Web App to integrate Google Sheets & Drive!
+ */
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    
+    // Save to Google Sheets
+    sheet.appendRow([
+      new Date(),
+      data.name,
+      data.email,
+      data.phone,
+      data.address,
+      data.coordinates ? data.coordinates.join(', ') : '',
+      data.packageId,
+      data.rentStb ? 'Yes' : 'No'
+    ]);
+    
+    // If KTP Image Base64 is sent, save to Google Drive
+    if (data.ktpImageBase64) {
+      var folder = DriveApp.getFoldersByName("Taranet_KTP_Uploads");
+      var targetFolder = folder.hasNext() ? folder.next() : DriveApp.createFolder("Taranet_KTP_Uploads");
+      
+      var base64Data = data.ktpImageBase64.split(",")[1];
+      var contentType = data.ktpImageBase64.split(",")[0].split(":")[1].split(";")[0];
+      var decoded = Utilities.base64Decode(base64Data);
+      var blob = Utilities.newBlob(decoded, contentType, "KTP_" + data.name + ".jpg");
+      
+      var file = targetFolder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", fileUrl: file ? file.getUrl() : "" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+    navigator.clipboard.writeText(scriptCode);
+    showToast('Kode Google Apps Script disalin ke clipboard!', 'success');
+  };
+
+  // Interactive leafet map display for customer pins
+  useEffect(() => {
+    if (activeTab !== 'customers' || !customers || customers.length === 0) return;
+
+    const mapElement = document.getElementById('admin-customers-map');
+    if (!mapElement) return;
+
+    // Remove old map instance if existing
+    const existingMap = (mapElement as any)._leaflet_map;
+    if (existingMap) {
+      existingMap.remove();
+    }
+
+    const defaultCenter: [number, number] = [-6.2088, 106.8456];
+    const map = L.map(mapElement).setView(defaultCenter, 11);
+    (mapElement as any)._leaflet_map = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Override marker icons safely
+    const DefaultIcon = L.icon({
+      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+
+    // Plot each customer's coordinates
+    customers.forEach((c) => {
+      if (c.coordinates && c.coordinates.length === 2) {
+        const marker = L.marker(c.coordinates, { icon: DefaultIcon }).addTo(map);
+        const pkg = PACKAGES.find((p) => p.id === c.packageId);
+        marker.bindPopup(`
+          <div style="font-family: sans-serif; font-size: 11px; line-height: 1.4;">
+            <strong style="font-size: 13px; color: #1e3a8a;">${c.name}</strong><br/>
+            <strong>No HP:</strong> ${c.phone}<br/>
+            <strong>Paket:</strong> ${pkg?.name || 'N/A'}<br/>
+            <strong>Status:</strong> <span style="font-weight:bold; color: ${c.status === 'active' ? '#10b981' : '#f59e0b'}">${c.status.toUpperCase()}</span><br/>
+            <strong>Alamat:</strong> ${c.address}
+          </div>
+        `);
+      }
+    });
+
+    // Re-invalidate size to trigger proper rendering
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 100);
+
+    return () => {
+      if (map) {
+        map.remove();
+        delete (mapElement as any)._leaflet_map;
+      }
+    };
+  }, [activeTab, customers]);
+
+  // Handle focus on map coordinate
+  const handleFocusOnMap = (customer: CustomerUser) => {
+    setSelectedUserForMap(customer);
+    const mapElement = document.getElementById('admin-customers-map');
+    if (mapElement) {
+      const map = (mapElement as any)._leaflet_map;
+      if (map && customer.coordinates) {
+        map.setView(customer.coordinates, 15);
+        // Find existing markers and trigger popup could be added, but setting center is sufficient
+      }
+    }
+  };
+
+  const filteredCustomers = customers.filter(
+    (c) =>
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.phone.includes(searchTerm)
+  );
+
+  return (
+    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 flex flex-col lg:flex-row gap-8 text-xs">
+      {/* LEFT SIDEBAR NAVIGATION PANEL */}
+      <aside className="w-full lg:w-64 shrink-0 space-y-6 lg:sticky lg:top-24 h-fit">
+        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 flex flex-col gap-6">
+          <div className="pb-4 border-b border-slate-100 flex justify-center">
+            <Logo companyName={companySettings?.name} />
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider px-3 mb-2">Menu Navigasi</p>
+            <nav className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => setActiveTab('overview')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'overview'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <TrendingUp className="w-4 h-4" />
+                <span>Analisis & Grafik</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('customers')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'customers'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Kelola Pelanggan</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('payments')}
+                className={`flex items-center justify-between px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'payments'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <CreditCard className="w-4 h-4" />
+                  <span>Verifikasi Bayar</span>
+                </div>
+                {pendingPaymentsList.length > 0 && (
+                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold ${
+                    activeTab === 'payments' ? 'bg-white text-blue-600' : 'bg-amber-500 text-white animate-pulse'
+                  }`}>
+                    {pendingPaymentsList.length} Baru
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('tickets')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left justify-between ${
+                  activeTab === 'tickets'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Tiket Gangguan</span>
+                </div>
+                {supportTickets.filter((t) => t.status === 'open').length > 0 && (
+                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold ${
+                    activeTab === 'tickets' ? 'bg-white text-blue-600' : 'bg-red-100 text-red-600'
+                  }`}>
+                    {supportTickets.filter((t) => t.status === 'open').length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('packages')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'packages'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <Wifi className="w-4 h-4" />
+                <span>Kelola Paket WiFi</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('company_settings')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'company_settings'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span>Pengaturan & Promo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('coverage')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'coverage'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <MapPin className="w-4 h-4" />
+                <span>Kelola Area Cakupan</span>
+              </button>
+            </nav>
+          </div>
+        </div>
+      </aside>
+
+      {/* RIGHT MAIN PANEL */}
+      <div className="flex-1 space-y-6 min-w-0">
+        {/* Toast Notification Banner */}
+        {toast && (
+          <div
+            className={`p-4 rounded-2xl flex items-center justify-between text-xs font-bold shadow-lg animate-in slide-in-from-top-2 ${
+              toast.type === 'success'
+                ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                : 'bg-red-600 text-white shadow-red-600/20'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {toast.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+              <span>{toast.message}</span>
+            </div>
+            <button onClick={() => setToast(null)} className="p-1 hover:bg-white/20 rounded-lg">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Modal Confirm Delete Customer */}
+        {customerToDelete && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900">Hapus Pelanggan?</h3>
+                <p className="text-xs text-slate-500">
+                  Apakah Anda yakin ingin menghapus <strong>{customerToDelete.name}</strong> ({customerToDelete.id})? Data pelanggan dan riwayat tagihannya akan dihapus secara permanen.
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCustomerToDelete(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteCustomer(customerToDelete.id)}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-red-600/20"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirm Delete Package */}
+        {packageToDelete && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <Wifi className="w-6 h-6" />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900">Hapus Paket WiFi?</h3>
+                <p className="text-xs text-slate-500">
+                  Apakah Anda yakin ingin menghapus paket <strong>{packageToDelete.name}</strong>? Paket ini tidak akan lagi tampil di halaman registrasi.
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPackageToDelete(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeletePackage(packageToDelete.id)}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-red-600/20"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirm Delete City */}
+        {cityToDelete && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <MapPin className="w-6 h-6" />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900">Hapus Wilayah?</h3>
+                <p className="text-xs text-slate-500">
+                  Hapus kota/kabupaten <strong>{cityToDelete}</strong> beserta seluruh kecamatan & kelurahan di dalamnya?
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCityToDelete(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteCity(cityToDelete)}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-red-600/20"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirm Delete Kecamatan */}
+        {kecToDelete && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900">Hapus Kecamatan?</h3>
+                <p className="text-xs text-slate-500">
+                  Hapus kecamatan <strong>{kecToDelete.name}</strong> dari {kecToDelete.cityName}?
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setKecToDelete(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteKecamatan(kecToDelete.cityName, kecToDelete.name)}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-red-600/20"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirm Delete Kelurahan */}
+        {kelToDelete && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900">Hapus Kelurahan?</h3>
+                <p className="text-xs text-slate-500">
+                  Hapus kelurahan <strong>{kelToDelete.name}</strong>?
+                </p>
+              </div>
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setKelToDelete(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteKelurahan(kelToDelete.cityName, kelToDelete.kecamatanName, kelToDelete.name)}
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-red-600/20"
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Admin Header Banner */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900 text-white p-6 rounded-3xl shadow-xl">
+          <div className="space-y-1">
+            <span className="text-[10px] bg-blue-600 px-3 py-1 rounded-full font-bold uppercase tracking-wider">
+              Sistem Kontrol Administrasi {(companySettings?.name || 'Taranet').toUpperCase()}
+            </span>
+            <h1 className="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-2">
+              <ShieldCheck className="w-6 h-6 text-blue-500" /> Dashboard Portal Admin WiFi
+            </h1>
+            <p className="text-[11px] text-slate-400">Kelola pelanggan, kirim pengingat tagihan WhatsApp, pantau grafik harian, & unduh laporan Excel.</p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={onRefreshData}
+              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all border border-slate-700"
+              title="Sinkronisasi Data Baru"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleExportToExcel}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all shadow-md flex items-center gap-1.5"
+            >
+              <Download className="w-4 h-4" /> Ekspor Transaksi Excel
+            </button>
+          </div>
+        </div>
+
+        {/* Tabs Content Wrapper */}
+        <div className="space-y-8">
+        {/* TAB 1: OVERVIEW & REAL-TIME REVENUE ANALYTICS */}
+        {activeTab === 'overview' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            {/* Real-time Payment Report Notification Banner */}
+            {pendingPaymentsList.length > 0 && (
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm animate-in fade-in duration-300">
+                <div className="flex items-start gap-3.5">
+                  <div className="p-3 bg-amber-500 text-white rounded-2xl shrink-0 mt-0.5 shadow-md shadow-amber-500/20">
+                    <CreditCard className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded-md font-extrabold text-[9px] uppercase tracking-wider">
+                        Laporan Pembayaran Pelanggan
+                      </span>
+                      <span className="text-[10px] text-amber-700 font-bold">
+                        {pendingPaymentsList.length} Pembayaran Menunggu Konfirmasi
+                      </span>
+                    </div>
+                    <h3 className="font-black text-sm text-amber-950">
+                      Pelanggan telah melakukan konfirmasi pembayaran!
+                    </h3>
+                    <p className="text-xs text-amber-800">
+                      Terbaru dari <strong>{pendingPaymentsList[0].customer.name}</strong> ({pendingPaymentsList[0].customer.phone}) sebesar <strong>Rp {pendingPaymentsList[0].payment.amount.toLocaleString('id-ID')}</strong> untuk periode {pendingPaymentsList[0].payment.billingPeriod}.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('payments')}
+                  className="w-full sm:w-auto px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-amber-600/20 shrink-0 text-center flex items-center justify-center gap-2"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  <span>Verifikasi & Setujui Sekarang &rarr;</span>
+                </button>
+              </div>
+            )}
+
+            {/* Quick stats grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Total Pendapatan Terverifikasi</span>
+                <p className="text-xl sm:text-2xl font-black text-blue-600 font-mono">Rp {totalRevenue.toLocaleString('id-ID')}</p>
+                <div className="flex items-center gap-1 text-[10px] text-emerald-600 font-bold">
+                  <TrendingUp className="w-3.5 h-3.5" /> Real-time Revenue
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Pelanggan Aktif</span>
+                <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono">{activeCustomers}</p>
+                <p className="text-[10px] text-emerald-500">Koneksi Fiber Terpasang</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Antrean Pasang Baru (Pending)</span>
+                <p className="text-xl sm:text-2xl font-black text-amber-500 font-mono">{pendingCustomers}</p>
+                <p className="text-[10px] text-slate-400">Menunggu Verifikasi & Teknisi</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm space-y-2">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Akun Terisolir (Suspended)</span>
+                <p className="text-xl sm:text-2xl font-black text-red-500 font-mono">{suspendedCustomers}</p>
+                <p className="text-[10px] text-slate-400">Layanan ditangguhkan sementara</p>
+              </div>
+            </div>
+
+            {/* Visual Analytics charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Daily Revenue Chart */}
+              <div className="lg:col-span-8 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-md space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">
+                    Pendapatan Harian (15 Hari Terakhir)
+                  </h3>
+                  <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded font-extrabold font-mono">Real-time</span>
+                </div>
+
+                <div className="h-64 sm:h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={dailyRevenueHistory} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="date" stroke="#94a3b8" fontSize={9} tickLine={false} />
+                      <YAxis
+                        stroke="#94a3b8"
+                        fontSize={9}
+                        tickLine={false}
+                        axisLine={false}
+                        tickFormatter={(v) => `Rp ${v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : (v / 1000).toFixed(0) + 'k'}`}
+                      />
+                      <Tooltip
+                        formatter={(value: any) => [`Rp ${value.toLocaleString('id-ID')}`, 'Pendapatan']}
+                        contentStyle={{ fontSize: '11px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                      />
+                      <Area type="monotone" dataKey="revenue" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#colorRevenue)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Package Distribution Chart */}
+              <div className="lg:col-span-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-md space-y-4 flex flex-col justify-between">
+                <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">
+                  Distribusi Paket WiFi
+                </h3>
+
+                {pieData.length > 0 ? (
+                  <div className="space-y-4 my-auto">
+                    <div className="h-44 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={50}
+                            outerRadius={70}
+                            paddingAngle={3}
+                            dataKey="value"
+                          >
+                            {pieData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={{ fontSize: '10px' }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    {/* Manual Legend */}
+                    <div className="grid grid-cols-2 gap-2 text-[10px] max-h-24 overflow-y-auto">
+                      {pieData.map((item, index) => (
+                        <div key={item.name} className="flex items-center gap-1.5 text-slate-600">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                          <span className="truncate">{item.name} ({item.value})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-slate-400 font-bold">
+                    Belum ada data distribusi produk WiFi.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Simulated WhatsApp automatic notification logs */}
+            <div className="bg-slate-900 text-white rounded-2xl p-5 sm:p-6 space-y-4">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+                <h4 className="font-bold text-sm text-yellow-400">Log Pengiriman WhatsApp Gateway Otomatis</h4>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 font-bold">Online</span>
+              </div>
+              <p className="text-[10px] text-slate-400">WhatsApp Gateway secara otomatis mengirimkan rincian status penagihan/verifikasi lunas kepada pelanggan. Berikut log real-time:</p>
+              <div className="space-y-2 max-h-32 overflow-y-auto font-mono text-[10px] divide-y divide-slate-800/60">
+                {waLogs.length > 0 ? (
+                  waLogs.map((log) => (
+                    <div key={log.id} className="py-2 first:pt-0">
+                      <span className="text-slate-500">[{log.time}]</span> <span className="text-blue-400">{log.phone}:</span>{' '}
+                      <span className="text-slate-300">{log.message}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-4 text-center text-slate-500">Belum ada aktivitas pengiriman notifikasi WhatsApp otomatis.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: DATA PELANGGAN & MAP GEOGRAPHICAL DISTRIBUTION */}
+        {activeTab === 'customers' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            {/* GIS Map plot panel */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-md overflow-hidden space-y-3">
+              <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <Globe className="w-5 h-5 text-blue-600" /> Plot Geografis Pemasangan Pelanggan
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Memetakan semua titik koordinat pelanggan Taranet menggunakan Leaflet Map OpenStreetMap.</p>
+                </div>
+                {selectedUserForMap && (
+                  <div className="bg-blue-50 text-blue-800 border border-blue-100 text-[10px] font-bold py-1 px-2.5 rounded-lg">
+                    Fokus: {selectedUserForMap.name}
+                  </div>
+                )}
+              </div>
+              <div id="admin-customers-map" className="w-full h-80 z-10" style={{ minHeight: '320px' }} />
+            </div>
+
+            {/* Search and Database Table */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-md p-6 space-y-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">
+                  Daftar Lengkap Pelanggan & Jalur WiFi
+                </h3>
+                <div className="flex flex-wrap gap-2 items-center w-full md:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (filteredCustomers.length === 0) return;
+                      // Staggered trigger to prevent browser locks
+                      filteredCustomers.forEach((c, idx) => {
+                        setTimeout(() => {
+                          generateCustomerPDFReport(c, supportTickets.filter((t) => t.userId === c.id));
+                        }, idx * 300);
+                      });
+                    }}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all active:scale-95 flex items-center gap-1.5 shadow-md shrink-0"
+                    title="Cetak PDF Laporan Bulanan untuk Semua Pelanggan Terfilter"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Cetak Laporan Massal ({filteredCustomers.length})
+                  </button>
+                  <div className="relative w-full sm:max-w-xs">
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Cari nama, email atau telepon..."
+                      className="w-full px-3 py-2 pl-9 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-xs bg-slate-50/50"
+                    />
+                    <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase">
+                      <th className="py-3 px-4">Nama Pelanggan</th>
+                      <th className="py-3 px-4">Paket & Biaya</th>
+                      <th className="py-3 px-4">Dokumen KTP</th>
+                      <th className="py-3 px-4">Kontak / Alamat</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Laporan PDF</th>
+                      <th className="py-3 px-4 text-right">Ubah Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
+                    {filteredCustomers.length > 0 ? (
+                      filteredCustomers.map((c) => {
+                        const pkg = PACKAGES.find((p) => p.id === c.packageId) || PACKAGES[0];
+                        return (
+                          <tr key={c.id} className="hover:bg-slate-50/50">
+                            <td className="py-4 px-4 font-bold text-slate-900">
+                              <p className="text-sm">{c.name}</p>
+                              <span className="text-[10px] text-slate-400 font-mono">ID: {c.id}</span>
+                            </td>
+                            <td className="py-4 px-4">
+                              <p className="font-semibold text-slate-800">{pkg.name}</p>
+                              <p className="text-[10px] text-blue-600 font-mono font-bold">Rp {pkg.price.toLocaleString('id-ID')}/bln</p>
+                            </td>
+                            <td className="py-4 px-4">
+                              {c.ktpImageUrl ? (
+                                <div className="flex items-center gap-2">
+                                  <img
+                                    src={c.ktpImageUrl}
+                                    alt={`KTP ${c.name}`}
+                                    className="w-10 h-7 object-cover rounded-lg border border-slate-200 cursor-pointer shadow-sm hover:scale-105 transition shrink-0 bg-slate-100"
+                                    onClick={() =>
+                                      setPreviewModal({
+                                        isOpen: true,
+                                        imageUrl: c.ktpImageUrl!,
+                                        title: `Foto KTP - ${c.name}`,
+                                        subtitle: `ID Pelanggan: ${c.id} | Email: ${c.email}`,
+                                      })
+                                    }
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setPreviewModal({
+                                        isOpen: true,
+                                        imageUrl: c.ktpImageUrl!,
+                                        title: `Foto KTP - ${c.name}`,
+                                        subtitle: `ID Pelanggan: ${c.id} | Email: ${c.email}`,
+                                      })
+                                    }
+                                    className="text-blue-600 hover:text-blue-800 font-bold text-[11px] flex items-center gap-1 hover:underline"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>Buka KTP</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">Belum ada</span>
+                              )}
+                            </td>
+                            <td className="py-4 px-4 space-y-1 max-w-[200px]">
+                              <p className="font-mono text-[11px] font-semibold text-slate-800 flex items-center gap-1">
+                                <PhoneCall className="w-3 h-3 text-emerald-500" /> {c.phone}
+                              </p>
+                              <p className="truncate text-slate-500" title={c.address}>{c.address}</p>
+                              <button
+                                onClick={() => handleFocusOnMap(c)}
+                                className="text-[9px] text-indigo-600 font-bold hover:underline flex items-center gap-1"
+                              >
+                                <MapPin className="w-3 h-3 text-indigo-500" /> Lihat di Peta
+                              </button>
+                            </td>
+                            <td className="py-4 px-4">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
+                                c.status === 'active'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : c.status === 'pending'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {c.status}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4">
+                              <button
+                                type="button"
+                                onClick={() => generateCustomerPDFReport(c, supportTickets.filter((t) => t.userId === c.id))}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-700 font-bold text-[10px] rounded-lg transition-all border border-slate-200/80 active:scale-95"
+                                title="Cetak Laporan PDF untuk Pelanggan Ini"
+                              >
+                                <Download className="w-3 h-3 text-blue-600" /> Cetak PDF
+                              </button>
+                            </td>
+                            <td className="py-4 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <select
+                                  value={c.status}
+                                  onChange={async (e) => {
+                                    await onUpdateCustomerStatus(c.id, e.target.value as any);
+                                  }}
+                                  className="px-2 py-1 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-white"
+                                >
+                                  <option value="pending">Set Pending</option>
+                                  <option value="active">Set Active</option>
+                                  <option value="suspended">Set Suspended</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => setCustomerToDelete(c)}
+                                  className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
+                                  title="Hapus Pelanggan"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">
+                          Pelanggan tidak ditemukan.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: VERIFIKASI PEMBAYARAN TAGIHAN */}
+        {activeTab === 'payments' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-md p-6 space-y-4">
+              <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100">
+                Persetujuan Transaksi & Bukti Transfer Masuk
+              </h3>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[700px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase">
+                      <th className="py-3 px-4">Pelanggan</th>
+                      <th className="py-3 px-4">Periode Tagihan</th>
+                      <th className="py-3 px-4">Jumlah</th>
+                      <th className="py-3 px-4">Bukti Transaksi</th>
+                      <th className="py-3 px-4">Metode & Tanggal</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
+                    {customers.flatMap((c) =>
+                      c.payments.map((p) => ({ customer: c, payment: p }))
+                    ).length > 0 ? (
+                      customers.flatMap((c) =>
+                        c.payments.map((p) => {
+                          const hasProof = !!p.proofOfPaymentUrl;
+                          return (
+                            <tr key={p.id} className="hover:bg-slate-50/50">
+                              <td className="py-3.5 px-4">
+                                <p className="font-bold text-slate-900">{c.name}</p>
+                                <p className="text-[10px] text-slate-400">{c.phone}</p>
+                              </td>
+                              <td className="py-3.5 px-4 font-semibold text-slate-800">{p.billingPeriod}</td>
+                              <td className="py-3.5 px-4 font-bold text-blue-600 font-mono">Rp {p.amount.toLocaleString('id-ID')}</td>
+                              <td className="py-3.5 px-4">
+                                {hasProof && p.proofOfPaymentUrl ? (
+                                  <div className="flex items-center gap-2">
+                                    <img
+                                      src={p.proofOfPaymentUrl}
+                                      alt="Bukti Transfer"
+                                      className="w-10 h-10 object-cover rounded-lg border border-slate-200 cursor-pointer shadow-sm hover:scale-105 transition shrink-0 bg-slate-100"
+                                      onClick={() =>
+                                        setPreviewModal({
+                                          isOpen: true,
+                                          imageUrl: p.proofOfPaymentUrl!,
+                                          title: `Bukti Transfer - ${c.name}`,
+                                          subtitle: `Tagihan ${p.billingPeriod} | Nominal: Rp ${p.amount.toLocaleString('id-ID')} | Metode: ${p.method || 'Transfer'}`,
+                                        })
+                                      }
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPreviewModal({
+                                          isOpen: true,
+                                          imageUrl: p.proofOfPaymentUrl!,
+                                          title: `Bukti Transfer - ${c.name}`,
+                                          subtitle: `Tagihan ${p.billingPeriod} | Nominal: Rp ${p.amount.toLocaleString('id-ID')} | Metode: ${p.method || 'Transfer'}`,
+                                        })
+                                      }
+                                      className="text-blue-600 hover:text-blue-800 font-bold text-[11px] flex items-center gap-1 hover:underline"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      <span>Buka Bukti</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 text-[11px]">Belum diunggah</span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <p className="font-bold text-slate-700 uppercase">{p.method || 'QRIS'}</p>
+                                <p className="text-[10px] text-slate-400">{p.date}</p>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase border ${
+                                  p.status === 'paid'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                    : p.status === 'pending_verification'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                    : 'bg-red-50 text-red-700 border-red-100'
+                                }`}>
+                                  {p.status}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                {p.status === 'pending_verification' && (
+                                  <div className="flex gap-1.5 justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        await onVerifyPayment(c.id, p.id);
+                                        logWhatsAppNotification(c.phone, c.name, p.billingPeriod, p.amount);
+                                      }}
+                                      className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] transition-all flex items-center gap-1 shadow-sm active:scale-95"
+                                    >
+                                      <Check className="w-3 h-3" /> Setujui
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (onRejectPayment) {
+                                          await onRejectPayment(c.id, p.id);
+                                        }
+                                      }}
+                                      className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-[10px] transition-all flex items-center gap-1 shadow-sm active:scale-95"
+                                    >
+                                      Tolak
+                                    </button>
+                                  </div>
+                                )}
+                                {p.status === 'paid' && (
+                                  <span className="text-emerald-600 font-bold text-[10px]">Verified Lunas ✓</span>
+                                )}
+                                {p.status === 'unpaid' && (
+                                  <div className="flex flex-col gap-1 items-end">
+                                    <span className="text-slate-400 italic mb-1 text-[10px]">Menunggu Pembayaran</span>
+                                    <div className="flex flex-col sm:flex-row gap-1 justify-end">
+                                      <button
+                                        type="button"
+                                        disabled={sendingReminderId === `${p.id}-before_due`}
+                                        onClick={() => handleSendWhatsAppReminder(c.id, p.id, 'before_due')}
+                                        className="px-2 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-50 font-bold text-[9px] rounded-md transition-colors border border-blue-200 whitespace-nowrap"
+                                        title="Kirim pengingat WhatsApp sebelum jatuh tempo"
+                                      >
+                                        {sendingReminderId === `${p.id}-before_due` ? 'Mengirim...' : 'WA Sebelum Jatuh Tempo'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={sendingReminderId === `${p.id}-overdue`}
+                                        onClick={() => handleSendWhatsAppReminder(c.id, p.id, 'overdue')}
+                                        className="px-2 py-1 bg-rose-50 text-rose-600 hover:bg-rose-100 disabled:opacity-50 font-bold text-[9px] rounded-md transition-colors border border-rose-200 whitespace-nowrap"
+                                        title="Kirim peringatan keterlambatan pembayaran"
+                                      >
+                                        {sendingReminderId === `${p.id}-overdue` ? 'Mengirim...' : 'WA Keterlambatan'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">
+                          Belum ada transaksi terekam.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: COMPLAINTS / GANGGUAN SUPPORT TICKETS */}
+        {activeTab === 'tickets' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-md p-6 space-y-4">
+              <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100">
+                Laporan Keluhan & Gangguan WiFi Pelanggan
+              </h3>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[600px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase">
+                      <th className="py-3 px-4">Nama Pelanggan</th>
+                      <th className="py-3 px-4">Kontak</th>
+                      <th className="py-3 px-4">Pesan Laporan Kendala</th>
+                      <th className="py-3 px-4">Tanggal Masuk</th>
+                      <th className="py-3 px-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
+                    {supportTickets.length > 0 ? (
+                      supportTickets.map((t) => (
+                        <tr key={t.id} className="hover:bg-slate-50/50">
+                          <td className="py-3.5 px-4 font-bold text-slate-900">{t.userName}</td>
+                          <td className="py-3.5 px-4 font-mono text-[11px]">{t.phone} <br /> <span className="text-slate-400 font-sans text-[10px]">{t.email}</span></td>
+                          <td className="py-3.5 px-4 max-w-[300px] leading-relaxed text-slate-600">{t.message}</td>
+                          <td className="py-3.5 px-4">{t.date}</td>
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-extrabold text-[9px] uppercase ${
+                              t.status === 'resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800 animate-pulse'
+                            }`}>
+                              {t.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="py-12 text-center text-slate-400 font-bold">
+                          Tidak ada tiket laporan gangguan saat ini.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: WIFI PACKAGES MANAGEMENT */}
+        {activeTab === 'packages' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            {/* Form Add Package */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-6">
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                  <Wifi className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Kelola Paket Langganan WiFi</h3>
+                  <p className="text-xs text-slate-400">Tambah paket baru atau hapus paket yang sudah tidak aktif.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleAddPackage} className="space-y-4 max-w-2xl">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-700 uppercase">Nama Paket *</label>
+                    <input
+                      type="text"
+                      value={newPkgName}
+                      onChange={(e) => setNewPkgName(e.target.value)}
+                      placeholder="Contoh: Home Ultra 150 Mbps"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:ring-1 focus:ring-blue-600 focus:bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-700 uppercase">Kecepatan (Bandwidth) *</label>
+                    <input
+                      type="text"
+                      value={newPkgSpeed}
+                      onChange={(e) => setNewPkgSpeed(e.target.value)}
+                      placeholder="Contoh: Up to 150 Mbps"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:ring-1 focus:ring-blue-600 focus:bg-white"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-700 uppercase">Harga Bulanan (Rp) *</label>
+                    <input
+                      type="number"
+                      value={newPkgPrice}
+                      onChange={(e) => setNewPkgPrice(e.target.value)}
+                      placeholder="Contoh: 350000"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:ring-1 focus:ring-blue-600 focus:bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-700 uppercase">Kategori Paket *</label>
+                    <select
+                      value={newPkgType}
+                      onChange={(e) => setNewPkgType(e.target.value as any)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold bg-slate-50/50 focus:ring-1 focus:ring-blue-600 focus:bg-white"
+                    >
+                      <option value="home">Home (Rumah / Keluarga)</option>
+                      <option value="business">Bisnis / Premium (Taranet Area)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-700 uppercase">Fitur & Keunggulan (Satu per baris)</label>
+                  <textarea
+                    rows={4}
+                    value={newPkgFeatures}
+                    onChange={(e) => setNewPkgFeatures(e.target.value)}
+                    placeholder={"100% Fiber Optik Unlimited\nUpload & Download Simetris 1:1\nIdeal untuk 10-15 perangkat\nGRATIS Biaya Pasang"}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50/50 focus:ring-1 focus:ring-blue-600 focus:bg-white resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="popular-pkg-check"
+                    checked={newPkgPopular}
+                    onChange={(e) => setNewPkgPopular(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                  />
+                  <label htmlFor="popular-pkg-check" className="text-xs font-bold text-slate-700 cursor-pointer">
+                    Tandai sebagai Paket Populer (Best Seller / Rekomendasi)
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-blue-600/20 flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah Paket WiFi</span>
+                </button>
+              </form>
+            </div>
+
+            {/* List of Existing Packages */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-4">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">
+                  Daftar Paket WiFi Aktif ({packagesList.length})
+                </h3>
+                <button
+                  type="button"
+                  onClick={fetchPackagesList}
+                  className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg border border-slate-200"
+                  title="Refresh Paket"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingPackages ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {loadingPackages ? (
+                <div className="py-12 text-center text-slate-400 font-bold flex items-center justify-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                  <span>Memuat daftar paket...</span>
+                </div>
+              ) : packagesList.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 font-bold border border-dashed border-slate-200 rounded-2xl">
+                  Belum ada paket WiFi tersimpan. Silakan tambahkan formulir di atas.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {packagesList.map((pkg) => (
+                    <div
+                      key={pkg.id}
+                      className="border border-slate-200 rounded-2xl p-5 bg-white shadow-sm flex flex-col justify-between space-y-4 hover:border-blue-300 transition"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-extrabold text-[9px] uppercase tracking-wider ${
+                              pkg.type === 'business' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            {pkg.type === 'business' ? 'Bisnis' : 'Home'}
+                          </span>
+                          {pkg.popular && (
+                            <span className="bg-amber-100 text-amber-800 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                              POPULER
+                            </span>
+                          )}
+                        </div>
+
+                        <h4 className="font-black text-sm text-slate-900">{pkg.name}</h4>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-black text-blue-600 font-mono">
+                            Rp {pkg.price.toLocaleString('id-ID')}
+                          </span>
+                          <span className="text-[10px] text-slate-400">/ bulan</span>
+                        </div>
+                        <p className="text-[11px] font-bold text-slate-600 font-mono">Kecepatan: {pkg.speed}</p>
+
+                        {pkg.features && pkg.features.length > 0 && (
+                          <ul className="pt-2 border-t border-slate-100 space-y-1 text-[11px] text-slate-600">
+                            {pkg.features.map((feat, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                <span>{feat}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
+                        <span className="text-[9px] font-mono text-slate-400">ID: {pkg.id}</span>
+                        <button
+                          type="button"
+                          onClick={() => setPackageToDelete(pkg)}
+                          className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold text-[10px] transition flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Hapus Paket</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: COMPANY SETTINGS & PROMO MANAGEMENT */}
+        {activeTab === 'company_settings' && (
+          <div className="space-y-8 animate-in fade-in duration-300">
+            {/* Promo Banner Management */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-6">
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl">
+                  <ImageIcon className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Kelola Banner & Gambar Promo</h3>
+                  <p className="text-xs text-slate-400">Unggah poster dan flyer promo internet WiFi untuk ditampilkan kepada calon pelanggan.</p>
+                </div>
+              </div>
+
+              {/* Upload Promo Form */}
+              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200/60 space-y-4 max-w-2xl">
+                <label className="block text-[10px] font-bold text-slate-700 uppercase">Pilih Gambar Promo Baru</label>
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          setNewPromoImage(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                  />
+
+                  {newPromoImage && (
+                    <button
+                      type="button"
+                      onClick={handleUploadPromo}
+                      disabled={uploadingPromo}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition shadow-md shadow-emerald-600/20 flex items-center gap-1.5 shrink-0"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>{uploadingPromo ? 'Mengunggah...' : 'Simpan Promo'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {newPromoImage && (
+                  <div className="p-2 bg-white rounded-xl border border-slate-200 max-w-xs">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Preview Gambar Promo:</p>
+                    <img src={newPromoImage} alt="Promo Preview" className="w-full h-36 object-cover rounded-lg" />
+                  </div>
+                )}
+              </div>
+
+              {/* List of current promos */}
+              <div className="space-y-3">
+                <h4 className="font-extrabold text-xs text-slate-800 uppercase tracking-wider">
+                  Gambar Promo Aktif ({promosList.length})
+                </h4>
+
+                {promosList.length === 0 ? (
+                  <div className="py-8 text-center text-slate-400 font-bold border border-dashed border-slate-200 rounded-2xl">
+                    Belum ada banner promo diunggah. Unggah gambar promo di atas untuk menampilkannya.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {promosList.map((promoUrl, idx) => (
+                      <div key={idx} className="relative group rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 shadow-sm">
+                        <img src={promoUrl} alt={`Promo ${idx + 1}`} className="w-full h-44 object-cover" />
+                        <div className="absolute inset-0 bg-slate-950/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center p-4">
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePromo(idx)}
+                            className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-lg flex items-center gap-1.5"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            <span>Hapus Promo</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Company Identity Form */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-6">
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100 flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-blue-600" /> Pengaturan Identitas Perusahaan & WiFi
+                </h3>
+                <p className="text-slate-500 leading-relaxed mt-2 text-xs">
+                  Ubah nama perusahaan WiFi, alamat, serta identitas visual logo Anda di sini. Perubahan ini akan langsung diperbarui ke seluruh halaman web portal pelanggan, kuitansi PDF, dan notifikasi pesan otomatis.
+                </p>
+              </div>
+
+              <form onSubmit={handleSaveCompanySettings} className="space-y-4 max-w-xl">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Nama Perusahaan WiFi</label>
+                  <input
+                    type="text"
+                    value={companyNameInput}
+                    onChange={(e) => setCompanyNameInput(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
+                    placeholder="Contoh: Taranet WiFi"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Teks Logo Identitas Visual (Maksimal 2 Kata)</label>
+                  <input
+                    type="text"
+                    value={companyLogoTextInput}
+                    onChange={(e) => setCompanyLogoTextInput(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
+                    placeholder="Contoh: TARANET"
+                    required
+                  />
+                  <p className="text-[10px] text-slate-400">Kata kedua dalam logo otomatis dihiasi dengan warna biru profesional.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Alamat Perusahaan / Kantor WiFi</label>
+                  <textarea
+                    rows={3}
+                    value={companyAddressInput}
+                    onChange={(e) => setCompanyAddressInput(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
+                    placeholder="Alamat lengkap kantor pusat..."
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Upload Logo Perusahaan</label>
+                  <div className="flex items-center gap-4 p-4 border border-slate-200 rounded-xl bg-slate-50/50">
+                    {companyLogoUrlInput ? (
+                      <img src={companyLogoUrlInput} alt="Logo Preview" className="h-12 w-12 object-contain rounded border bg-white p-1" />
+                    ) : (
+                      <div className="h-12 w-12 rounded border bg-white flex items-center justify-center text-slate-300 text-xs font-bold font-sans">
+                        LOGO
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setCompanyLogoUrlInput(reader.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      />
+                      <p className="text-[9px] text-slate-400 mt-1">Gunakan format PNG/JPG dengan resolusi persegi/lanskap.</p>
+                    </div>
+                    {companyLogoUrlInput && (
+                      <button
+                        type="button"
+                        onClick={() => setCompanyLogoUrlInput('')}
+                        className="px-2.5 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition"
+                      >
+                        Hapus
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={savingSettings}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-md flex items-center gap-2 text-xs"
+                >
+                  {savingSettings ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 7: AREA COVERAGE AREA MANAGEMENT */}
+        {activeTab === 'coverage' && (
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-6 animate-in fade-in duration-300">
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100 flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-blue-600" /> Pengaturan Area Jangkauan / Cakupan WiFi
+              </h3>
+              <p className="text-slate-500 leading-relaxed mt-2 text-xs">
+                Kelola daerah jangkauan internet WiFi Anda secara dinamis. Anda bisa menambah kota/kabupaten baru, mendaftarkan kecamatan, hingga mengaktifkan kelurahan/desa beserta status nodenya.
+              </p>
+            </div>
+
+            {/* FORM ADD CITY/KABUPATEN */}
+            <form onSubmit={handleAddCity} className="p-4 bg-slate-50 rounded-2xl border border-slate-200/50 flex flex-col sm:flex-row items-end gap-3 max-w-2xl">
+              <div className="flex-1 space-y-1 w-full">
+                <label className="block font-bold text-slate-700 uppercase text-[9px]">Nama Kota / Kabupaten Baru</label>
+                <input
+                  type="text"
+                  value={newCityName}
+                  onChange={(e) => setNewCityName(e.target.value)}
+                  placeholder="Contoh: Depok, Bogor, Bekasi"
+                  className="w-full px-3 py-2 border border-slate-200 bg-white rounded-xl focus:ring-1 focus:ring-blue-600 text-xs"
+                  required
+                />
+              </div>
+              <div className="space-y-1 w-full sm:w-40">
+                <label className="block font-bold text-slate-700 uppercase text-[9px]">Tipe Wilayah</label>
+                <select
+                  value={newCityType}
+                  onChange={(e) => setNewCityType(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 bg-white rounded-xl focus:ring-1 focus:ring-blue-600 text-xs font-bold"
+                >
+                  <option value="Kota">Kota</option>
+                  <option value="Kabupaten">Kabupaten</option>
+                </select>
+              </div>
+              <button
+                type="submit"
+                className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition text-xs shrink-0"
+              >
+                Tambah Wilayah
+              </button>
+            </form>
+
+            {loadingCoverage ? (
+              <div className="py-12 text-center text-slate-400 font-bold flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                <span>Memuat database area cakupan...</span>
+              </div>
+            ) : coverageList.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 font-bold border border-dashed border-slate-200 rounded-2xl">
+                Belum ada area cakupan terdaftar. Silakan tambah kota/kabupaten di atas.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-6">
+                {coverageList.map((city) => (
+                  <div key={city.cityName} className="border border-slate-200 rounded-2xl bg-white shadow-sm overflow-hidden">
+                    {/* City Header */}
+                    <div className="bg-slate-50 border-b border-slate-200 px-5 py-4 flex items-center justify-between">
+                      <div>
+                        <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-md font-extrabold text-[9px] uppercase tracking-wider mr-2">
+                          {city.regionType}
+                        </span>
+                        <strong className="text-sm text-slate-800 uppercase tracking-tight">{city.cityName}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCityToDelete(city.cityName)}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
+                        title="Hapus Kota/Kabupaten ini"
+                      >
+                        <Trash className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-5 space-y-4">
+                      {/* Form Add Kecamatan */}
+                      <div className="flex gap-2 max-w-md">
+                        <input
+                          type="text"
+                          placeholder="Masukkan nama Kecamatan baru..."
+                          value={newKecName[city.cityName] || ''}
+                          onChange={(e) => setNewKecName(prev => ({ ...prev, [city.cityName]: e.target.value }))}
+                          className="flex-1 px-3 py-2 border border-slate-200 rounded-xl focus:ring-1 focus:ring-blue-600 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddKecamatan(city.cityName)}
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition text-xs shrink-0"
+                        >
+                          Tambah Kec.
+                        </button>
+                      </div>
+
+                      {/* Kecamatan List */}
+                      {city.kecamatans && city.kecamatans.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {city.kecamatans.map((kec: any) => {
+                            const kecKey = `${city.cityName}-${kec.name}`;
+                            return (
+                              <div key={kec.name} className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 flex flex-col justify-between">
+                                <div className="flex items-center justify-between border-b border-slate-200/60 pb-2 mb-2">
+                                  <strong className="text-slate-800 uppercase text-[10px]">Kecamatan {kec.name}</strong>
+                                  <button
+                                    type="button"
+                                    onClick={() => setKecToDelete({ cityName: city.cityName, name: kec.name })}
+                                    className="p-1 text-red-500 hover:bg-red-50 rounded transition"
+                                  >
+                                    <Trash className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                {/* Form Add Kelurahan */}
+                                <div className="flex gap-1.5 mb-3">
+                                  <input
+                                    type="text"
+                                    placeholder="Kelurahan baru..."
+                                    value={newKelName[kecKey] || ''}
+                                    onChange={(e) => setNewKelName(prev => ({ ...prev, [kecKey]: e.target.value }))}
+                                    className="flex-1 px-2.5 py-1.5 border border-slate-200 bg-white rounded-lg focus:ring-1 focus:ring-blue-600 text-[10px]"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddKelurahan(city.cityName, kec.name)}
+                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition text-[10px] shrink-0"
+                                  >
+                                    Tambah
+                                  </button>
+                                </div>
+
+                                {/* Kelurahan Sub-list */}
+                                {kec.kelurahans && kec.kelurahans.length > 0 ? (
+                                  <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                                    {kec.kelurahans.map((kel: any) => (
+                                      <div key={kel.name} className="flex items-center justify-between px-2 py-1.5 bg-white border border-slate-200/50 rounded-lg text-[10px]">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                          <span className="text-slate-700 font-medium">{kel.name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[9px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                            {kel.nodesCount || 0} Nodes
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setKelToDelete({ cityName: city.cityName, kecamatanName: kec.name, name: kel.name })}
+                                            className="p-0.5 text-slate-400 hover:text-red-500 transition"
+                                          >
+                                            <Trash className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-[9px] text-slate-400 italic">Belum ada kelurahan terdaftar.</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-slate-400 italic bg-slate-50 p-3 rounded-xl border border-dashed">
+                          Belum ada kecamatan terdaftar. Silakan tambah di atas.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Lightbox Image Preview Modal */}
+        <ImagePreviewModal
+          isOpen={previewModal.isOpen}
+          onClose={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}
+          imageUrl={previewModal.imageUrl}
+          title={previewModal.title}
+          subtitle={previewModal.subtitle}
+        />
+      </div>
+    </div>
+  </div>
+  );
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Taranet Wifi",
+  "description": "Full-stack internet service provider platform featuring interactive subscription forms, Leaflet OpenStreetMap coordinate picker, customer & admin dashboards, PostgreSQL & Supabase database integration via Drizzle ORM, WhatsApp automated notifications, PDF monthly reports, and real-time revenue analytics.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
