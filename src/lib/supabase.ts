@@ -130,6 +130,18 @@ export async function pushCustomerToSupabase(customer: {
       return { success: false, error: custError.message };
     }
 
+    // 1b. Also upsert into users table for Auth/Account tracking
+    try {
+      await client.from('users').upsert({
+        uid: customer.id,
+        email: customer.email.toLowerCase(),
+        name: customer.name,
+        role: 'customer',
+      }, { onConflict: 'uid' });
+    } catch (uErr) {
+      console.warn('[Supabase Auto-Sync] Non-fatal users table sync:', uErr);
+    }
+
     // 2. Insert initial payment record if present
     if (customer.initialPayment) {
       const { error: payError } = await client.from('payments').upsert({

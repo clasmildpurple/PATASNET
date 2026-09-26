@@ -93,7 +93,7 @@ export default function MapPicker({ onLocationSelect, initialCoords }: MapPicker
         {
           headers: {
             'Accept-Language': 'id,en',
-            'User-Agent': 'TaranetWifi-App'
+            'User-Agent': 'PatasNetWifi-App'
           }
         }
       );
@@ -120,7 +120,7 @@ export default function MapPicker({ onLocationSelect, initialCoords }: MapPicker
         {
           headers: {
             'Accept-Language': 'id,en',
-            'User-Agent': 'TaranetWifi-App'
+            'User-Agent': 'PatasNetWifi-App'
           }
         }
       );

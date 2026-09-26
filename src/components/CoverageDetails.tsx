@@ -248,7 +248,7 @@ export default function CoverageDetails() {
               {selectedCity.regionType} {selectedCity.cityName}
             </h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Jaringan backbone utama dan serat optik sekunder Taranet telah terpasang dengan total kapasitas siap pakai. Sangat siap menerima pendaftaran pasang baru.
+              Jaringan backbone utama dan serat optik sekunder Patas Net telah terpasang dengan total kapasitas siap pakai. Sangat siap menerima pendaftaran pasang baru.
             </p>
           </div>
 

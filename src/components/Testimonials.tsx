@@ -20,7 +20,7 @@ const TESTIMONIALS_DATA: Testimonial[] = [
     location: 'Kebayoran Baru, Jakarta Selatan',
     avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&h=200&q=80',
     rating: 5,
-    text: 'Sebagai gamers dan streamer Twitch, latensi dan kestabilan ping adalah segalanya. Setelah beralih ke Taranet Exclusive 100 Mbps, ping ke server Valorant stabil di 8ms tanpa jitter! Dan yang paling penting: tidak ada FUP sama sekali. Bebas stream seharian penuh.',
+    text: 'Sebagai gamers dan streamer Twitch, latensi dan kestabilan ping adalah segalanya. Setelah beralih ke Patas Net Exclusive 100 Mbps, ping ke server Valorant stabil di 8ms tanpa jitter! Dan yang paling penting: tidak ada FUP sama sekali. Bebas stream seharian penuh.',
     tag: 'STABILITAS GAMING'
   },
   {
@@ -30,7 +30,7 @@ const TESTIMONIALS_DATA: Testimonial[] = [
     location: 'Ciomas, Kabupaten Bogor',
     avatarUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=200&h=200&q=80',
     rating: 5,
-    text: 'Anak-anak sekolah online, suami WFH, saya sendiri suka nonton drama Korea di Smart TV 4K. Hebatnya, paket Taranet Home 20 Mbps sanggup melayani semua tanpa buffering sedikit pun! Biayanya sangat ramah di kantong dan penanganan CS cepat sekali.',
+    text: 'Anak-anak sekolah online, suami WFH, saya sendiri suka nonton drama Korea di Smart TV 4K. Hebatnya, paket Patas Net Home 20 Mbps sanggup melayani semua tanpa buffering sedikit pun! Biayanya sangat ramah di kantong dan penanganan CS cepat sekali.',
     tag: 'KELUARGA HEMAT'
   },
   {
@@ -40,7 +40,7 @@ const TESTIMONIALS_DATA: Testimonial[] = [
     location: 'Serpong, Tangerang Selatan',
     avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&h=200&q=80',
     rating: 5,
-    text: 'Sering melakukan deploy file besar ke AWS dan meeting Zoom dengan klien luar negeri. Taranet memberikan kecepatan simetris 1:1, upload secepat downloadnya. Koneksi tidak pernah drop meskipun cuaca hujan lebat di luar rumah. Sangat profesional!',
+    text: 'Sering melakukan deploy file besar ke AWS dan meeting Zoom dengan klien luar negeri. Patas Net memberikan kecepatan simetris 1:1, upload secepat downloadnya. Koneksi tidak pernah drop meskipun cuaca hujan lebat di luar rumah. Sangat profesional!',
     tag: 'PRODUKTIVITAS KERJA'
   },
   {
@@ -50,7 +50,7 @@ const TESTIMONIALS_DATA: Testimonial[] = [
     location: 'Bogor Timur, Kota Bogor',
     avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80',
     rating: 5,
-    text: 'Kami sewa STB Android dan pasang Taranet Premium untuk pengunjung kafe. Hasilnya pelanggan makin betah karena wifi kencang gratis. Support admin sangat kooperatif, laporan billing terbit otomatis dan pembayarannya mudah banget pakai QRIS.',
+    text: 'Kami sewa STB Android dan pasang Patas Net Premium untuk pengunjung kafe. Hasilnya pelanggan makin betah karena wifi kencang gratis. Support admin sangat kooperatif, laporan billing terbit otomatis dan pembayarannya mudah banget pakai QRIS.',
     tag: 'BISNIS & KAFE'
   }
 ];

@@ -990,7 +990,7 @@ export default function DeveloperDashboard({ onLogout, companyName }: DeveloperD
                   value={overrideSettings.name}
                   onChange={(e) => setOverrideSettings((prev) => ({ ...prev, name: e.target.value }))}
                   className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-emerald-500 text-white"
-                  placeholder="Contoh: Taranet WiFi"
+                  placeholder="Contoh: Patas Net WiFi"
                   required
                 />
               </div>
@@ -1002,7 +1002,7 @@ export default function DeveloperDashboard({ onLogout, companyName }: DeveloperD
                   value={overrideSettings.logoText}
                   onChange={(e) => setOverrideSettings((prev) => ({ ...prev, logoText: e.target.value }))}
                   className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-emerald-500 text-white"
-                  placeholder="Contoh: TARANET"
+                  placeholder="Contoh: PATAS NET"
                   required
                 />
               </div>

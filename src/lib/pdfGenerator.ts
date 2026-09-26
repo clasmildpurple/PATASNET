@@ -14,7 +14,7 @@ export function generateCustomerPDFReport(user: CustomerUser, tickets: SupportTi
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
-  doc.text('TARANET WIFI', 15, 20);
+  doc.text('PATAS NET WIFI', 15, 20);
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -158,8 +158,8 @@ export function generateCustomerPDFReport(user: CustomerUser, tickets: SupportTi
   // Footer info
   doc.setFontSize(7.5);
   doc.setTextColor(148, 163, 184);
-  doc.text('Dokumen laporan ini diterbitkan secara otomatis oleh sistem administrasi terpadu TARANET WIFI.', 15, 280);
+  doc.text('Dokumen laporan ini diterbitkan secara otomatis oleh sistem administrasi terpadu PATAS NET WIFI.', 15, 280);
   doc.text('Segala bentuk data yang tercantum bersifat rahasia dan sah bagi pelanggan terdaftar.', 15, 285);
 
-  doc.save(`Laporan_Bulanan_Taranet_${user.name.replace(/\s+/g, '_')}_${user.id}.pdf`);
+  doc.save(`Laporan_Bulanan_PatasNet_${user.name.replace(/\s+/g, '_')}_${user.id}.pdf`);
 }

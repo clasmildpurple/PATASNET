@@ -23,9 +23,9 @@ export async function seedDatabaseIfEmpty() {
       // Default company settings
       await db.insert(companySettings).values({
         id: 'default',
-        name: 'Taranet WiFi',
+        name: 'Patas Net WiFi',
         address: 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110',
-        logoText: 'TARANET',
+        logoText: 'PATAS NET',
         themeColor: '#2563eb',
         logoUrl: '',
         promos: JSON.stringify([]),
@@ -39,10 +39,10 @@ export async function seedDatabaseIfEmpty() {
         { id: 'home-30m', name: 'Home Family 30 Mbps', speed: '30 Mbps', price: 210000, features: JSON.stringify(['Kecepatan Stabil up to 30 Mbps', 'Tanpa Batasan / Unlimited Kuota', 'Ideal untuk 6-8 perangkat', 'Bisa Sewa STB (+Rp25rb)', 'GRATIS Biaya Pasang']), type: 'home', popular: false },
         { id: 'home-50m', name: 'Home Pro 50 Mbps', speed: '50 Mbps', price: 270000, features: JSON.stringify(['Kecepatan Stabil up to 50 Mbps', 'Tanpa Batasan / Unlimited Kuota', 'Ideal untuk 8-10 perangkat', 'Bisa Sewa STB (+Rp25rb)', 'GRATIS Biaya Pasang']), type: 'home', popular: false },
         { id: 'home-100m', name: 'Home Ultra 100 Mbps', speed: '100 Mbps', price: 490000, features: JSON.stringify(['Kecepatan Stabil up to 100 Mbps', 'Tanpa Batasan / Unlimited Kuota', 'Ideal untuk 10-15 perangkat', 'Bisa Sewa STB (+Rp25rb)', 'GRATIS Biaya Pasang']), type: 'home', popular: false },
-        { id: 'taranet-prime', name: 'Taranet PRIME 50 Mbps', speed: 'Up to 50 Mbps', price: 220000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support CCTV Online Rumah', 'Streaming Smart TV 4K', 'GRATIS Biaya Pasang']), type: 'business', popular: false },
-        { id: 'taranet-exclusive', name: 'Taranet EXCLUSIVE 100 Mbps', speed: 'Up to 100 Mbps', price: 275000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 2 CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Stabil', 'GRATIS Biaya Pasang']), type: 'business', popular: true },
-        { id: 'taranet-exclusive2', name: 'Taranet EXCLUSIVE II 200 Mbps', speed: 'Up to 200 Mbps', price: 310000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 3 CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Stabil', 'GRATIS Biaya Pasang']), type: 'business', popular: false },
-        { id: 'taranet-bisnis', name: 'Taranet BISNIS 300 Mbps', speed: 'Up to 300 Mbps', price: 375000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 5+ CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Super Stabil', 'GRATIS Biaya Pasang']), type: 'business', popular: false },
+        { id: 'patasnet-prime', name: 'Patas Net PRIME 50 Mbps', speed: 'Up to 50 Mbps', price: 220000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support CCTV Online Rumah', 'Streaming Smart TV 4K', 'GRATIS Biaya Pasang']), type: 'business', popular: false },
+        { id: 'patasnet-exclusive', name: 'Patas Net EXCLUSIVE 100 Mbps', speed: 'Up to 100 Mbps', price: 275000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 2 CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Stabil', 'GRATIS Biaya Pasang']), type: 'business', popular: true },
+        { id: 'patasnet-exclusive2', name: 'Patas Net EXCLUSIVE II 200 Mbps', speed: 'Up to 200 Mbps', price: 310000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 3 CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Stabil', 'GRATIS Biaya Pasang']), type: 'business', popular: false },
+        { id: 'patasnet-bisnis', name: 'Patas Net BISNIS 300 Mbps', speed: 'Up to 300 Mbps', price: 375000, features: JSON.stringify(['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 5+ CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Super Stabil', 'GRATIS Biaya Pasang']), type: 'business', popular: false },
       ];
       for (const p of defaultPkgs) {
         await db.insert(wifiPackages).values(p).onConflictDoNothing();
@@ -191,7 +191,7 @@ export async function seedDatabaseIfEmpty() {
         userName: 'Budi Santoso',
         email: 'budi@gmail.com',
         phone: '081234567890',
-        message: 'Koneksi WiFi Taranet di rumah lambat sekali sejak hujan tadi sore, mohon diperiksa jalurnya.',
+        message: 'Koneksi WiFi Patas Net di rumah lambat sekali sejak hujan tadi sore, mohon diperiksa jalurnya.',
         date: '2026-07-18 19:45:00',
         status: 'open'
       }).onConflictDoNothing();
@@ -619,9 +619,9 @@ export async function getCompanySettings() {
     const rows = await db.select().from(companySettings).where(eq(companySettings.id, 'default'));
     if (rows.length === 0) {
       return {
-        name: 'Taranet WiFi',
+        name: 'Patas Net WiFi',
         address: 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110',
-        logoText: 'TARANET',
+        logoText: 'PATAS NET',
         themeColor: '#2563eb',
         logoUrl: '',
         promos: [] as string[],

@@ -48,26 +48,26 @@ export default function Logo({ className = '', iconOnly = false, inverse = false
               className="opacity-75"
             />
 
-            {/* Central T-Shape Mesh Core */}
+            {/* Central High-Speed Fiber Mesh Core */}
             <path
-              d="M32 30 H68 M50 30 V72"
+              d="M34 28 V72 M34 28 H58 C66 28 68 46 58 46 H34"
               stroke={inverse ? '#facc15' : '#1d4ed8'}
-              strokeWidth="9"
+              strokeWidth="7"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
             
             <path
-              d="M35 30 H65 M50 30 V68"
+              d="M36 30 V70 M36 30 H56 C64 30 66 44 56 44 H36"
               stroke="url(#core-grad)"
-              strokeWidth="6"
+              strokeWidth="4.5"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
 
             {/* Fiber Optic Pulse Node */}
-            <circle cx="50" cy="68" r="5" fill="#ffffff" />
-            <circle cx="50" cy="68" r="9" stroke="#38bdf8" strokeWidth="2" className="animate-ping" />
+            <circle cx="58" cy="45" r="4.5" fill="#ffffff" />
+            <circle cx="58" cy="45" r="8" stroke="#38bdf8" strokeWidth="2" className="animate-ping" />
 
             <defs>
               <linearGradient id="ring-grad" x1="0" y1="0" x2="100" y2="100">
@@ -101,7 +101,7 @@ export default function Logo({ className = '', iconOnly = false, inverse = false
           <div className="flex items-baseline">
             <span className={`font-display font-black text-2xl tracking-tight ${inverse ? 'text-white' : 'text-slate-900'}`}>
               {(() => {
-                const name = (companyName || 'TARANET').trim().toUpperCase();
+                const name = (companyName || 'PATAS NET').trim().toUpperCase();
                 if (name.includes(' ')) {
                   const parts = name.split(' ');
                   const first = parts[0];

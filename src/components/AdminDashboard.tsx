@@ -82,9 +82,9 @@ export default function AdminDashboard({
   };
 
   // Company Settings form states
-  const [companyNameInput, setCompanyNameInput] = useState(companySettings?.name || 'Taranet WiFi');
+  const [companyNameInput, setCompanyNameInput] = useState(companySettings?.name || 'Patas Net WiFi');
   const [companyAddressInput, setCompanyAddressInput] = useState(companySettings?.address || '');
-  const [companyLogoTextInput, setCompanyLogoTextInput] = useState(companySettings?.logoText || 'TARANET');
+  const [companyLogoTextInput, setCompanyLogoTextInput] = useState(companySettings?.logoText || 'PATAS NET');
   const [companyLogoUrlInput, setCompanyLogoUrlInput] = useState(companySettings?.logoUrl || '');
   const [savingSettings, setSavingSettings] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
@@ -582,7 +582,7 @@ export default function AdminDashboard({
     const log = {
       id: Math.random().toString(36).substr(2, 9),
       phone,
-      message: `[WhatsApp Otomatis] Halo ${customerName}, Pembayaran tagihan Taranet Wifi Anda untuk periode ${period} sebesar Rp ${amount.toLocaleString('id-ID')} telah BERHASIL diverifikasi dan Lunas. Internet Anda tetap aktif & stabil tanpa FUP. Terima kasih!`,
+      message: `[WhatsApp Otomatis] Halo ${customerName}, Pembayaran tagihan Patas Net Wifi Anda untuk periode ${period} sebesar Rp ${amount.toLocaleString('id-ID')} telah BERHASIL diverifikasi dan Lunas. Internet Anda tetap aktif & stabil tanpa FUP. Terima kasih!`,
       time: new Date().toLocaleTimeString('id-ID')
     };
     setWaLogs((prev) => [log, ...prev]);
@@ -616,14 +616,14 @@ export default function AdminDashboard({
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Transaksi Taranet');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Transaksi Patas Net');
 
     // Auto fit column widths
     const max_width = rows.reduce((w, r) => Math.max(w, Object.values(r).join('').length / 8), 10);
     worksheet['!cols'] = [{ wch: max_width }];
 
     // Generate Excel File
-    XLSX.writeFile(workbook, `Laporan_Transaksi_Taranet_Wifi_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(workbook, `Laporan_Transaksi_Patas_Net_Wifi_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   // Google Apps Script template copy trigger helper
@@ -652,8 +652,8 @@ function doPost(e) {
     
     // If KTP Image Base64 is sent, save to Google Drive
     if (data.ktpImageBase64) {
-      var folder = DriveApp.getFoldersByName("Taranet_KTP_Uploads");
-      var targetFolder = folder.hasNext() ? folder.next() : DriveApp.createFolder("Taranet_KTP_Uploads");
+      var folder = DriveApp.getFoldersByName("PatasNet_KTP_Uploads");
+      var targetFolder = folder.hasNext() ? folder.next() : DriveApp.createFolder("PatasNet_KTP_Uploads");
       
       var base64Data = data.ktpImageBase64.split(",")[1];
       var contentType = data.ktpImageBase64.split(",")[0].split(":")[1].split(";")[0];
@@ -1071,7 +1071,7 @@ function doPost(e) {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900 text-white p-6 rounded-3xl shadow-xl">
           <div className="space-y-1">
             <span className="text-[10px] bg-blue-600 px-3 py-1 rounded-full font-bold uppercase tracking-wider">
-              Sistem Kontrol Administrasi {(companySettings?.name || 'Taranet').toUpperCase()}
+              Sistem Kontrol Administrasi {(companySettings?.name || 'Patas Net').toUpperCase()}
             </span>
             <h1 className="text-xl sm:text-2xl font-black tracking-tight flex items-center gap-2">
               <ShieldCheck className="w-6 h-6 text-blue-500" /> Dashboard Portal Admin WiFi
@@ -1282,7 +1282,7 @@ function doPost(e) {
                   <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
                     <Globe className="w-5 h-5 text-blue-600" /> Plot Geografis Pemasangan Pelanggan
                   </h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Memetakan semua titik koordinat pelanggan Taranet menggunakan Leaflet Map OpenStreetMap.</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Memetakan semua titik koordinat pelanggan Patas Net menggunakan Leaflet Map OpenStreetMap.</p>
                 </div>
                 {selectedUserForMap && (
                   <div className="bg-blue-50 text-blue-800 border border-blue-100 text-[10px] font-bold py-1 px-2.5 rounded-lg">
@@ -1738,7 +1738,7 @@ function doPost(e) {
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold bg-slate-50/50 focus:ring-1 focus:ring-blue-600 focus:bg-white"
                     >
                       <option value="home">Home (Rumah / Keluarga)</option>
-                      <option value="business">Bisnis / Premium (Taranet Area)</option>
+                      <option value="business">Bisnis / Premium (Patas Net Area)</option>
                     </select>
                   </div>
                 </div>
@@ -1972,7 +1972,7 @@ function doPost(e) {
                     value={companyNameInput}
                     onChange={(e) => setCompanyNameInput(e.target.value)}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
-                    placeholder="Contoh: Taranet WiFi"
+                    placeholder="Contoh: Patas Net WiFi"
                     required
                   />
                 </div>
@@ -1984,7 +1984,7 @@ function doPost(e) {
                     value={companyLogoTextInput}
                     onChange={(e) => setCompanyLogoTextInput(e.target.value)}
                     className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
-                    placeholder="Contoh: TARANET"
+                    placeholder="Contoh: PATAS NET"
                     required
                   />
                   <p className="text-[10px] text-slate-400">Kata kedua dalam logo otomatis dihiasi dengan warna biru profesional.</p>

@@ -18,7 +18,7 @@ export default function Footer({ onNavigate, companyName, logoUrl }: FooterProps
     if (!csMessage.trim() || !csName.trim()) return;
 
     // Open WhatsApp live chat with pre-filled professional message template
-    const text = `Halo Customer Service TARANET,%0ANama saya *${csName}*.%0ASaya butuh bantuan/mengalami gangguan berikut:%0A%0A"${csMessage}"%0A%0AMohon bantuannya. Terima kasih!`;
+    const text = `Halo Customer Service ${companyName || 'PATAS NET'},%0ANama saya *${csName}*.%0ASaya butuh bantuan/mengalami gangguan berikut:%0A%0A"${csMessage}"%0A%0AMohon bantuannya. Terima kasih!`;
     window.open(`https://wa.me/628993299977?text=${text}`, '_blank');
     setShowCsModal(false);
     setCsMessage('');
@@ -32,7 +32,7 @@ export default function Footer({ onNavigate, companyName, logoUrl }: FooterProps
         <div className="space-y-4">
           <Logo inverse={true} companyName={companyName} logoUrl={logoUrl} />
           <p className="text-xs text-slate-400 leading-relaxed font-sans">
-            Taranet adalah provider internet berkualitas yang berkomitmen menyediakan 100% layanan Internet Fiber To The Home (FTTH). Menghubungkan Anda ke dunia luar dengan kecepatan tinggi, stabil, dan aman.
+            {companyName || 'Patas Net'} adalah provider internet berkualitas yang berkomitmen menyediakan 100% layanan Internet Fiber To The Home (FTTH). Menghubungkan Anda ke dunia luar dengan kecepatan tinggi, stabil, dan aman.
           </p>
           <div className="flex gap-3 text-slate-500 pt-2">
             <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" className="p-2 bg-slate-800 hover:bg-blue-600 hover:text-white rounded-lg transition-all">
@@ -65,7 +65,7 @@ export default function Footer({ onNavigate, companyName, logoUrl }: FooterProps
 
         {/* Operating Center */}
         <div>
-          <h4 className="font-semibold text-white text-sm tracking-wide uppercase mb-4">TARANET OPERATION CENTER</h4>
+          <h4 className="font-semibold text-white text-sm tracking-wide uppercase mb-4">{(companyName || 'PATAS NET').toUpperCase()} OPERATION CENTER</h4>
           <p className="text-xs text-slate-400 leading-relaxed">
             Jl. Ciomas V No.4, RT.07/RW.01, Rw. Barat, <br />
             Kec. Kby. Baru, Kota Jakarta Selatan, <br />
@@ -87,7 +87,7 @@ export default function Footer({ onNavigate, companyName, logoUrl }: FooterProps
             </li>
             <li className="flex items-center gap-2.5">
               <Mail className="w-4 h-4 text-blue-500" />
-              <span>cs@taranet.id</span>
+              <span>cs@patasnet.id</span>
             </li>
             <li className="bg-slate-800 p-3 rounded-lg border border-slate-700/50 text-[11px] text-yellow-400 flex flex-col gap-1">
               <span className="font-semibold text-white">Butuh Bantuan Segera?</span>
@@ -98,7 +98,7 @@ export default function Footer({ onNavigate, companyName, logoUrl }: FooterProps
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-6 border-t border-slate-800 text-center text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center gap-3">
-        <p>Copyright © 2026 PT. AMANUSA TELEMEDIA MAHARDHIKA. All Right Reserved</p>
+        <p>Copyright © 2026 PT. PATAS NET TELEMEDIA. All Right Reserved</p>
         <div className="flex gap-4">
           <a href="#" className="hover:text-blue-500">Kebijakan Privasi</a>
           <span>•</span>
@@ -115,7 +115,7 @@ export default function Footer({ onNavigate, companyName, logoUrl }: FooterProps
           id="cs-floating-btn"
         >
           <span className="absolute right-14 bg-slate-900 text-white text-[11px] font-bold py-1.5 px-3 rounded-lg shadow border border-slate-800 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-            Hubungi Customer Service Taranet 24 Jam
+            Hubungi Customer Service {companyName || 'Patas Net'} 24 Jam
           </span>
           {/* Pulsing glow ring */}
           <span className="absolute -inset-1 rounded-full bg-emerald-500/30 animate-ping -z-10" />
@@ -136,7 +136,7 @@ export default function Footer({ onNavigate, companyName, logoUrl }: FooterProps
                   <HelpCircle className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-sm">Customer Service TARANET</h3>
+                  <h3 className="font-bold text-sm">Customer Service {(companyName || 'PATAS NET').toUpperCase()}</h3>
                   <p className="text-[10px] text-emerald-100">Solusi Gangguan & Bantuan Cepat 24/7</p>
                 </div>
               </div>

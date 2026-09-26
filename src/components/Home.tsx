@@ -63,18 +63,18 @@ export const PACKAGES: WifiPackage[] = [
     type: 'home'
   },
 
-  // Premium / Business Packages (Taranet Area)
+  // Premium / Business Packages (Patas Net Area)
   {
-    id: 'taranet-prime',
-    name: 'Taranet PRIME 50 Mbps',
+    id: 'patasnet-prime',
+    name: 'Patas Net PRIME 50 Mbps',
     speed: 'Up to 50 Mbps',
     price: 220000,
     features: ['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support CCTV Online Rumah', 'Streaming Smart TV 4K', 'GRATIS Biaya Pasang'],
     type: 'business'
   },
   {
-    id: 'taranet-exclusive',
-    name: 'Taranet EXCLUSIVE 100 Mbps',
+    id: 'patasnet-exclusive',
+    name: 'Patas Net EXCLUSIVE 100 Mbps',
     speed: 'Up to 100 Mbps',
     price: 275000,
     features: ['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 2 CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Stabil', 'GRATIS Biaya Pasang'],
@@ -82,16 +82,16 @@ export const PACKAGES: WifiPackage[] = [
     popular: true
   },
   {
-    id: 'taranet-exclusive2',
-    name: 'Taranet EXCLUSIVE II 200 Mbps',
+    id: 'patasnet-exclusive2',
+    name: 'Patas Net EXCLUSIVE II 200 Mbps',
     speed: 'Up to 200 Mbps',
     price: 310000,
     features: ['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 3 CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Stabil', 'GRATIS Biaya Pasang'],
     type: 'business'
   },
   {
-    id: 'taranet-bisnis',
-    name: 'Taranet BISNIS 300 Mbps',
+    id: 'patasnet-bisnis',
+    name: 'Patas Net BISNIS 300 Mbps',
     speed: 'Up to 300 Mbps',
     price: 375000,
     features: ['100% Fiber Optik Unlimited', 'Sosmed & Video Streaming HD', 'Upload & Download Simetris 1:1', 'Ideal untuk 10-15 perangkat aktif', 'Support 5+ CCTV Online Rumah', 'Streaming Smart TV 4K', 'Gaming Online Super Stabil', 'GRATIS Biaya Pasang'],
@@ -173,15 +173,15 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
 
   const faqs = [
     {
-      q: 'Apa yang dimaksud dengan Taranet?',
-      a: 'Taranet adalah provider internet berkualitas yang menyediakan layanan 100% Internet Fiber To The Home (FTTH). Layanan Taranet memberikan Anda kecepatan internet cepat dan stabil untuk menyelesaikan segala tugas Anda, streaming video berkualitas HD/4K, maupun gaming tanpa hambatan.'
+      q: 'Apa yang dimaksud dengan Patas Net?',
+      a: 'Patas Net adalah provider internet berkualitas yang menyediakan layanan 100% Internet Fiber To The Home (FTTH). Layanan Patas Net memberikan Anda kecepatan internet cepat dan stabil untuk menyelesaikan segala tugas Anda, streaming video berkualitas HD/4K, maupun gaming tanpa hambatan.'
     },
     {
-      q: 'Apa keuntungan menggunakan layanan Taranet?',
-      a: 'Taranet menawarkan internet unlimited tanpa kuota dengan kecepatan simetris antara upload dan download (1:1), gratis biaya pemasangan di area tertentu, harga terjangkau yang sudah termasuk pajak, serta jaminan layanan bantuan gangguan 24 jam.'
+      q: 'Apa keuntungan menggunakan layanan Patas Net?',
+      a: 'Patas Net menawarkan internet unlimited tanpa kuota dengan kecepatan simetris antara upload dan download (1:1), gratis biaya pemasangan di area tertentu, harga terjangkau yang sudah termasuk pajak, serta jaminan layanan bantuan gangguan 24 jam.'
     },
     {
-      q: 'Bagaimana cara berlangganan paket dari Taranet?',
+      q: 'Bagaimana cara berlangganan paket dari Patas Net?',
       a: 'Anda cukup klik tombol "Berlangganan" di menu navigasi, pilih paket yang sesuai kebutuhan Anda, lengkapi formulir pendaftaran, tentukan titik lokasi pemasangan pada peta OpenStreetMap Leaflet yang kami sediakan, dan unggah foto KTP. Tim teknisi kami akan segera melakukan verifikasi dan penjadwalan pasang baru.'
     },
     {
@@ -189,8 +189,8 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
       a: 'Teknologi Speedify yang kami gunakan menggabungkan optimasi jalur koneksi cerdas untuk meminimalkan latensi dan memaksimalkan kestabilan ping saat bermain game online atau melakukan panggilan video konferensi.'
     },
     {
-      q: 'Apakah Taranet menerapkan FUP (Fair Usage Policy)?',
-      a: 'Tidak. Taranet berkomitmen memberikan layanan True Unlimited tanpa FUP, sehingga Anda dapat menikmati kecepatan internet penuh sepanjang bulan tanpa penurunan kecepatan setelah mencapai batas pemakaian tertentu.'
+      q: 'Apakah Patas Net menerapkan FUP (Fair Usage Policy)?',
+      a: 'Tidak. Patas Net berkomitmen memberikan layanan True Unlimited tanpa FUP, sehingga Anda dapat menikmati kecepatan internet penuh sepanjang bulan tanpa penurunan kecepatan setelah mencapai batas pemakaian tertentu.'
     }
   ];
 
@@ -471,12 +471,12 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
       <section id="tentang-section" className="py-20 px-4 bg-slate-100/60 border-t border-b border-slate-200/50">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div className="space-y-6">
-            <span className="text-xs text-blue-600 font-bold uppercase tracking-widest">KUALITAS TERBAIK TARANET</span>
+            <span className="text-xs text-blue-600 font-bold uppercase tracking-widest">KUALITAS TERBAIK PATAS NET</span>
             <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-950">
               100% Internet Fiber Optik Berkecepatan Simetris
             </h2>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Layanan Taranet memberikan internet cepat dan stabil dengan upload dan download simetris untuk pengalaman wifi rumah unlimited yang sesungguhnya. Kami memastikan internet Anda tanpa batasan kuota sepanjang waktu.
+              Layanan Patas Net memberikan internet cepat dan stabil dengan upload dan download simetris untuk pengalaman wifi rumah unlimited yang sesungguhnya. Kami memastikan internet Anda tanpa batasan kuota sepanjang waktu.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4">
@@ -504,7 +504,7 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
 
           <div className="bg-blue-900 text-white p-8 sm:p-10 rounded-3xl space-y-6 shadow-xl relative overflow-hidden">
             <div className="absolute bottom-0 right-0 w-44 h-44 bg-white/5 rounded-full translate-y-12 translate-x-12" />
-            <h3 className="text-2xl font-black tracking-tight">Kelebihan Utama Taranet</h3>
+            <h3 className="text-2xl font-black tracking-tight">Kelebihan Utama Patas Net</h3>
             <ul className="space-y-4">
               <li className="flex items-start gap-3">
                 <div className="p-1 bg-yellow-400 text-slate-900 rounded-full shrink-0">
@@ -543,7 +543,7 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
           <div className="lg:col-span-5 space-y-5">
             <span className="text-xs text-blue-600 font-bold uppercase tracking-widest">AREA JALUR AKTIF</span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-950">Cakupan Wilayah Taranet WiFi</h2>
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-950">Cakupan Wilayah Patas Net WiFi</h2>
             <p className="text-sm text-slate-500 leading-relaxed">
               Kami terus memperluas jaringan jalur serat optik kami hingga ke pelosok daerah untuk memastikan setiap warga dapat menikmati jaringan internet cepat berkualitas tinggi tanpa hambatan.
             </p>
@@ -594,7 +594,7 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
             <span className="text-xs text-blue-600 font-bold uppercase tracking-widest">TESTIMONI PELANGGAN</span>
             <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-950">Dipercaya oleh Ribuan Keluarga & Profesional</h2>
             <p className="text-sm text-slate-500">
-              Dengarkan langsung umpan balik jujur dari para pengguna Taranet yang telah menikmati internet tanpa FUP dengan kestabilan penuh di berbagai kota.
+              Dengarkan langsung umpan balik jujur dari para pengguna Patas Net yang telah menikmati internet tanpa FUP dengan kestabilan penuh di berbagai kota.
             </p>
           </div>
           <Testimonials />
@@ -607,7 +607,7 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
           <div className="text-center space-y-3">
             <span className="text-xs text-blue-600 font-bold uppercase tracking-widest">TANYA JAWAB</span>
             <h2 className="text-3xl font-extrabold tracking-tight">Pertanyaan yang Sering Diajukan</h2>
-            <p className="text-sm text-slate-500">Temukan jawaban cepat atas pertanyaan mendasar mengenai layanan Taranet Wifi.</p>
+            <p className="text-sm text-slate-500">Temukan jawaban cepat atas pertanyaan mendasar mengenai layanan Patas Net Wifi.</p>
           </div>
 
           <div className="space-y-4 pt-4">
@@ -655,7 +655,7 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
               </div>
               <div className="flex gap-3">
                 <Wifi className="w-4 h-4 text-yellow-400 shrink-0" />
-                <p> cs@taranet.id</p>
+                <p> cs@patasnet.id</p>
               </div>
             </div>
           </div>
