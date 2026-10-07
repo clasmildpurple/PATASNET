@@ -15,6 +15,8 @@ import {
   updateLocalCustomerStatus,
   updateLocalPaymentStatus,
   addLocalCustomer,
+  fetchFromGoogleSheets,
+  getGoogleSheetsWebhookUrl,
   DEFAULT_COMPANY_SETTINGS,
 } from './lib/clientFallback';
 
@@ -104,6 +106,7 @@ export default function App() {
 
   // Sync admin data or customer data in intervals/actions
   const fetchAdminData = async () => {
+    // 1. Try server endpoint
     try {
       const response = await fetch('/api/admin/data');
       if (response.ok) {
@@ -114,9 +117,22 @@ export default function App() {
         return;
       }
     } catch (err) {
-      console.warn('Failed to sync admin data from server, using local storage fallback:', err);
+      console.warn('Failed to sync admin data from server, checking 2-way Google Sheets / local storage:', err);
     }
-    // Fallback to local storage
+
+    // 2. Try 2-way live sync from Google Sheets if configured
+    try {
+      const sheetData = await fetchFromGoogleSheets();
+      if (sheetData && sheetData.customers && sheetData.customers.length > 0) {
+        setAdminCustomers(sheetData.customers);
+        if (sheetData.tickets) setAdminSupportTickets(sheetData.tickets);
+        return;
+      }
+    } catch (gErr) {
+      console.warn('Google Sheets 2-way sync check:', gErr);
+    }
+
+    // 3. Fallback to local storage
     setAdminCustomers(getLocalCustomers());
     setAdminSupportTickets(getLocalTickets());
   };
@@ -132,14 +148,68 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.warn('Failed to sync customer data from server, using local fallback:', err);
+      console.warn('Failed to sync customer data from server, using live sync:', err);
     }
+
+    // Check Google Sheets 2-way sync
+    try {
+      const sheetData = await fetchFromGoogleSheets();
+      if (sheetData && sheetData.customers) {
+        const found = sheetData.customers.find((c) => c.id === id);
+        if (found) {
+          setCurrentUser(found);
+          return;
+        }
+      }
+    } catch (gErr) {
+      console.warn('Google Sheets check for customer profile:', gErr);
+    }
+
     // Fallback to local storage
     const local = getLocalCustomers().find((c) => c.id === id);
     if (local) {
       setCurrentUser(local);
     }
   };
+
+  // Real-time 2-way synchronizer: polling every 4 seconds to sync across PC & HP
+  useEffect(() => {
+    const syncInterval = setInterval(() => {
+      if (currentUser) {
+        if ('isAdmin' in currentUser && (currentUser as any).isAdmin) {
+          fetchAdminData();
+        } else if ('id' in currentUser) {
+          const custId = (currentUser as CustomerUser).id;
+          // Silent background sync
+          fetch(`/api/customers/${custId}`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+              if (data && data.user) {
+                const oldStr = JSON.stringify(currentUser);
+                const newStr = JSON.stringify(data.user);
+                if (oldStr !== newStr) {
+                  setCurrentUser(data.user);
+                }
+              } else {
+                // If on static Vercel, check local customers (which gets updated by Google Sheets or tabs)
+                const latest = getLocalCustomers().find((c) => c.id === custId);
+                if (latest && JSON.stringify(latest) !== JSON.stringify(currentUser)) {
+                  setCurrentUser(latest);
+                }
+              }
+            })
+            .catch(() => {
+              const latest = getLocalCustomers().find((c) => c.id === custId);
+              if (latest && JSON.stringify(latest) !== JSON.stringify(currentUser)) {
+                setCurrentUser(latest);
+              }
+            });
+        }
+      }
+    }, 4000);
+
+    return () => clearInterval(syncInterval);
+  }, [currentUser]);
 
   // Sync active dashboard states
   useEffect(() => {
@@ -152,8 +222,6 @@ export default function App() {
         // Developer profile sync if needed
       } else {
         const customerUser = currentUser as CustomerUser;
-        // Only fetch profile from server if we are on dashboard or changing pages,
-        // but avoid infinite rendering loop.
         fetch(`/api/customers/${customerUser.id}`)
           .then((res) => {
             if (res.ok) return res.json();
@@ -161,8 +229,6 @@ export default function App() {
           })
           .then((data) => {
             if (isMounted && data.user) {
-              // Deep comparison or just checking if status/payments length changed
-              // to avoid setting state with identical objects and infinite looping
               const oldStr = JSON.stringify(customerUser);
               const newStr = JSON.stringify(data.user);
               if (oldStr !== newStr) {
@@ -170,7 +236,12 @@ export default function App() {
               }
             }
           })
-          .catch((err) => console.error('Failed to sync customer profile:', err));
+          .catch(() => {
+            const latest = getLocalCustomers().find((c) => c.id === customerUser.id);
+            if (isMounted && latest) {
+              setCurrentUser(latest);
+            }
+          });
       }
     }
 

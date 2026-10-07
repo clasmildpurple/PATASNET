@@ -3,6 +3,88 @@ import { CustomerUser, PaymentRecord, SupportTicket, WifiPackage } from '../type
 const STORAGE_CUSTOMERS_KEY = 'patasnet_customers_v1';
 const STORAGE_TICKETS_KEY = 'patasnet_tickets_v1';
 const STORAGE_SETTINGS_KEY = 'patasnet_settings_v1';
+export const STORAGE_SHEETS_URL_KEY = 'patasnet_google_sheets_url';
+
+export function getGoogleSheetsWebhookUrl(): string {
+  try {
+    return localStorage.getItem(STORAGE_SHEETS_URL_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveGoogleSheetsWebhookUrl(url: string): void {
+  try {
+    localStorage.setItem(STORAGE_SHEETS_URL_KEY, url.trim());
+  } catch (e) {
+    console.warn('Failed to save Google Sheets URL:', e);
+  }
+}
+
+// Background sync to Google Sheets & Drive Webhook if configured
+export async function syncToGoogleSheets(action: string, payload: any): Promise<boolean> {
+  const url = getGoogleSheetsWebhookUrl();
+  if (!url) return false;
+
+  try {
+    // Send using no-cors or standard fetch
+    await fetch(url, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    return true;
+  } catch (err) {
+    console.warn('[Google Sheets Sync Error]:', err);
+    return false;
+  }
+}
+
+// 2-Way Realtime synchronization: Fetch live data from Google Sheets & Drive Web App
+export async function fetchFromGoogleSheets(): Promise<{ customers?: CustomerUser[]; tickets?: SupportTicket[] } | null> {
+  const url = getGoogleSheetsWebhookUrl();
+  if (!url) return null;
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.status === 'success' && Array.isArray(data.customers) && data.customers.length > 0) {
+        // Merge or replace local customers to maintain 2-way consistency
+        const localCustomers = getLocalCustomers();
+        const mergedCustomers: CustomerUser[] = [...data.customers];
+
+        // Ensure newly created local customers that haven't finished roundtrip aren't deleted
+        localCustomers.forEach((lc) => {
+          if (!mergedCustomers.some((mc) => mc.id === lc.id || mc.email === lc.email)) {
+            mergedCustomers.push(lc);
+          }
+        });
+
+        saveLocalCustomers(mergedCustomers);
+
+        if (Array.isArray(data.tickets) && data.tickets.length > 0) {
+          saveLocalTickets(data.tickets);
+        }
+
+        return { customers: mergedCustomers, tickets: data.tickets || [] };
+      }
+    }
+  } catch (err) {
+    // Google Apps Script redirect or CORS may occur; fallback smoothly to localStorage
+    console.warn('[Google Sheets 2-Way Fetch Warning]:', err);
+  }
+  return null;
+}
 
 export const DEFAULT_COMPANY_SETTINGS = {
   name: 'Patas Net WiFi',
@@ -347,6 +429,9 @@ export function updateLocalPaymentStatus(customerId: string, paymentId: string, 
 
   if (updated) {
     saveLocalCustomers(newCustomers);
+    if (newStatus === 'paid') {
+      syncToGoogleSheets('approve_payment', { customerId, paymentId });
+    }
   }
   return updated;
 }
@@ -377,6 +462,12 @@ export function submitLocalPaymentProof(customerId: string, paymentId: string, p
 
   if (updated) {
     saveLocalCustomers(newCustomers);
+    syncToGoogleSheets('submit_payment_proof', {
+      userId: customerId,
+      paymentId,
+      proofBase64: proofUrl,
+      method: method || 'Transfer Bank',
+    });
   }
   return updated;
 }
@@ -396,6 +487,7 @@ export function updateLocalCustomerStatus(customerId: string, status: 'pending' 
 
   if (updated) {
     saveLocalCustomers(newCustomers);
+    syncToGoogleSheets('update_status', { id: customerId, status });
   }
   return updated;
 }
@@ -410,4 +502,17 @@ export function addLocalCustomer(customer: CustomerUser): void {
     customers.unshift(customer);
   }
   saveLocalCustomers(customers);
+
+  // Sync to Google Sheets & Google Drive
+  syncToGoogleSheets('subscribe', {
+    id: customer.id,
+    name: customer.name,
+    email: customer.email,
+    phone: customer.phone,
+    address: customer.address,
+    coordinates: customer.coordinates,
+    packageId: customer.packageId,
+    status: customer.status,
+    ktpImageBase64: customer.ktpImageUrl,
+  });
 }

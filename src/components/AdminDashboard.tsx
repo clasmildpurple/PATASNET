@@ -22,13 +22,19 @@ import {
   X,
   Upload,
   Image as ImageIcon,
-  Eye
+  Eye,
+  FileSpreadsheet,
+  HardDrive,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { CustomerUser, PaymentRecord, SupportTicket, WifiPackage } from '../types';
 import { generateCustomerPDFReport } from '../lib/pdfGenerator';
 import { PACKAGES } from './Home';
 import Logo from './Logo';
 import ImagePreviewModal from './ImagePreviewModal';
+import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../lib/googleSheetsIntegration';
+import { getGoogleSheetsWebhookUrl, saveGoogleSheetsWebhookUrl } from '../lib/clientFallback';
 import {
   AreaChart,
   Area,
@@ -70,9 +76,14 @@ export default function AdminDashboard({
   companySettings,
   onUpdateCompanySettings
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'payments' | 'tickets' | 'packages' | 'company_settings' | 'coverage'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'payments' | 'tickets' | 'packages' | 'company_settings' | 'coverage' | 'sheets'>('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserForMap, setSelectedUserForMap] = useState<CustomerUser | null>(null);
+
+  // Google Sheets Webhook URL state
+  const [googleSheetsUrl, setGoogleSheetsUrl] = useState(getGoogleSheetsWebhookUrl());
+  const [isTestingSheets, setIsTestingSheets] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
 
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -876,6 +887,24 @@ function doPost(e) {
               >
                 <MapPin className="w-4 h-4" />
                 <span>Kelola Area Cakupan</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('sheets')}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'sheets'
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/15'
+                    : 'text-slate-600 hover:text-emerald-600 hover:bg-emerald-50/50'
+                }`}
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
+                <div className="flex items-center justify-between w-full">
+                  <span>Google Sheets & Drive</span>
+                  <span className="text-[8px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded">
+                    Database
+                  </span>
+                </div>
               </button>
             </nav>
           </div>
@@ -2227,7 +2256,250 @@ function doPost(e) {
             )}
           </div>
         )}
-        {/* Lightbox Image Preview Modal */}
+
+        {/* TAB 8: GOOGLE SHEETS & GOOGLE DRIVE INTEGRATION */}
+        {activeTab === 'sheets' && (
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 sm:p-8 space-y-8 animate-in fade-in duration-300">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-5 border-b border-slate-100">
+              <div className="space-y-1">
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full font-extrabold uppercase tracking-wider inline-flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-3.5 h-3.5" /> Database Google Spreadsheet & Drive
+                </span>
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                  Integrasi Database Google Sheets & Google Drive
+                </h2>
+                <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
+                  Simpan semua data pendaftaran pelanggan baru dan transaksi langsung ke Google Spreadsheet Anda secara transparan. Foto KTP dan struk pembayaran otomatis terunggah dan tersimpan rapi di Google Drive.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+                    setCopiedScript(true);
+                    showToast('Kode Google Apps Script disalin ke clipboard!', 'success');
+                    setTimeout(() => setCopiedScript(false), 3000);
+                  }}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-sm"
+                >
+                  {copiedScript ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedScript ? 'Tersalin!' : 'Salin Kode Script'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* STATUS & WEBHOOK INPUT */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              <div className="lg:col-span-7 bg-slate-50/80 p-6 rounded-2xl border border-slate-200/80 space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                    <HardDrive className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-slate-900">URL Web App Google Apps Script</h3>
+                    <p className="text-[11px] text-slate-500">Masukkan URL Web App setelah deploy di script.google.com</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <input
+                    type="url"
+                    value={googleSheetsUrl}
+                    onChange={(e) => setGoogleSheetsUrl(e.target.value)}
+                    placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-mono text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">
+                      Status:{' '}
+                      <strong className={googleSheetsUrl ? 'text-emerald-600' : 'text-amber-600'}>
+                        {googleSheetsUrl ? 'Terkonfigurasi' : 'Belum Terhubung'}
+                      </strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        saveGoogleSheetsWebhookUrl(googleSheetsUrl);
+                        showToast('URL Google Sheets berhasil disimpan!', 'success');
+                      }}
+                      className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold text-xs transition"
+                    >
+                      Simpan URL
+                    </button>
+                  </div>
+                </div>
+
+                {/* TEST SYNC BUTTON */}
+                <div className="pt-2 border-t border-slate-200/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    <p className="text-[10px] text-slate-500 font-medium">Sinkronisasi 2-Arah otomatis berjalan setiap 4 detik.</p>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      disabled={!googleSheetsUrl || isTestingSheets}
+                      onClick={async () => {
+                        if (!googleSheetsUrl) {
+                          showToast('Harap masukkan Web App URL terlebih dahulu.', 'error');
+                          return;
+                        }
+                        setIsTestingSheets(true);
+                        try {
+                          onRefreshData();
+                          showToast('Memperbarui data 2-arah dari Google Sheets...', 'success');
+                        } finally {
+                          setIsTestingSheets(false);
+                        }
+                      }}
+                      className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isTestingSheets ? 'animate-spin' : ''}`} />
+                      <span>Tarik Data Terbaru</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!googleSheetsUrl || isTestingSheets}
+                      onClick={async () => {
+                        if (!googleSheetsUrl) {
+                          showToast('Harap masukkan Web App URL terlebih dahulu.', 'error');
+                          return;
+                        }
+                        setIsTestingSheets(true);
+                        try {
+                          const testPayload = {
+                            action: 'subscribe',
+                            id: `TR-TEST-${Math.floor(1000 + Math.random() * 9000)}`,
+                            name: 'Uji Coba Sinkronisasi',
+                            email: 'test@patasnet.id',
+                            phone: '081234567890',
+                            address: 'Jl. Uji Coba Integrasi No. 1, Jakarta',
+                            coordinates: [-6.2088, 106.8456],
+                            packageId: 'home-20m',
+                            status: 'active',
+                          };
+
+                          await fetch(googleSheetsUrl, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(testPayload),
+                          });
+
+                          showToast('Data uji coba berhasil dikirim ke Google Spreadsheet & Drive!', 'success');
+                          onRefreshData();
+                        } catch (err: any) {
+                          showToast('Gagal mengirim data uji coba: ' + err.message, 'error');
+                        } finally {
+                          setIsTestingSheets(false);
+                        }
+                      }}
+                      className="flex-1 sm:flex-none px-3.5 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl font-bold text-xs transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isTestingSheets ? 'animate-spin' : ''}`} />
+                      <span>Uji Kirim Baris</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* HOW IT WORKS CARD */}
+              <div className="lg:col-span-5 bg-gradient-to-br from-blue-50 to-indigo-50/50 p-6 rounded-2xl border border-blue-100 space-y-3">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
+                  Keuntungan Menggunakan Google Sheets & Drive
+                </span>
+                <h4 className="font-extrabold text-sm text-slate-900">Kemudahan Pengelolaan Mandiri</h4>
+                <ul className="text-xs text-slate-600 space-y-2 leading-relaxed">
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span><strong>100% Gratis:</strong> Tanpa biaya database bulanan pihak ketiga.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span><strong>Mudah Diedit:</strong> Bisa dibuka dari HP via Google Sheets dan Google Drive.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span><strong>Arsip Gambar KTP:</strong> Foto KTP pelanggan otomatis tersimpan dalam folder Google Drive khusus.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span><strong>Laporan Keuangan:</strong> Semua bukti transfer bank langsung tercatat rapi di Sheet Pembayaran.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* STEP BY STEP GUIDE */}
+            <div className="space-y-4">
+              <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-blue-600" /> Langkah Mudah Pemasangan (Hanya 3 Menit)
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-2">
+                  <span className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center">
+                    1
+                  </span>
+                  <h4 className="font-bold text-xs text-slate-900">Buka Spreadsheet Baru</h4>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Buka <a href="https://sheets.new" target="_blank" rel="noreferrer" className="text-blue-600 underline font-bold inline-flex items-center gap-0.5">sheets.new <ExternalLink className="w-3 h-3" /></a> di browser Anda, beri nama spreadsheet misalnya <strong>Database Patas Net</strong>.
+                  </p>
+                </div>
+
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-2">
+                  <span className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center">
+                    2
+                  </span>
+                  <h4 className="font-bold text-xs text-slate-900">Buka Apps Script & Tempel Kode</h4>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Klik menu <strong>Extensions (Ekstensi) &rarr; Apps Script</strong>. Hapus isi default dan tempel kode script yang telah Anda salin dengan tombol di atas.
+                  </p>
+                </div>
+
+                <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-2">
+                  <span className="w-7 h-7 rounded-full bg-blue-600 text-white font-extrabold text-xs flex items-center justify-center">
+                    3
+                  </span>
+                  <h4 className="font-bold text-xs text-slate-900">Deploy Web App & Tempel URL</h4>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Klik <strong>Deploy &rarr; New deployment</strong>, pilih <strong>Web app</strong>, Who has access: <strong>Anyone</strong>. Salin Web App URL dan tempelkan ke kolom di atas. Selesai!
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* SCRIPT CODE VIEWER */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h4 className="font-bold text-xs text-slate-700 uppercase tracking-wider">
+                  Pratinjau Kode Google Apps Script (Code.gs)
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_TEMPLATE);
+                    setCopiedScript(true);
+                    showToast('Kode Google Apps Script disalin ke clipboard!', 'success');
+                    setTimeout(() => setCopiedScript(false), 3000);
+                  }}
+                  className="text-xs text-blue-600 hover:underline font-bold flex items-center gap-1"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Salin Seluruh Kode
+                </button>
+              </div>
+
+              <div className="relative">
+                <pre className="p-4 bg-slate-950 text-slate-200 rounded-2xl text-[11px] font-mono overflow-x-auto max-h-72 border border-slate-800 leading-relaxed">
+                  {GOOGLE_APPS_SCRIPT_TEMPLATE}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+
         <ImagePreviewModal
           isOpen={previewModal.isOpen}
           onClose={() => setPreviewModal(prev => ({ ...prev, isOpen: false }))}
