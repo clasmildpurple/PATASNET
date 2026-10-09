@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, Shield, Zap, Check, ArrowRight, HelpCircle, MapPin, Sparkles, AlertCircle } from 'lucide-react';
-import { WifiPackage } from '../types';
+import { Wifi, Shield, Zap, Check, ArrowRight, HelpCircle, MapPin, Sparkles, AlertCircle, Gift, Tag } from 'lucide-react';
+import { WifiPackage, CompanySettings } from '../types';
 import CoverageDetails from './CoverageDetails';
 import Testimonials from './Testimonials';
 import Logo from './Logo';
@@ -8,6 +8,9 @@ import Logo from './Logo';
 interface HomeProps {
   onSelectPackage: (packageId: string) => void;
   onNavigate: (page: string) => void;
+  companyName?: string;
+  logoUrl?: string;
+  companySettings?: CompanySettings;
 }
 
 // Packages definitions matching Image 1 and Image 2
@@ -99,11 +102,32 @@ export const PACKAGES: WifiPackage[] = [
   }
 ];
 
-export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
+export default function Home({ onSelectPackage, onNavigate, companyName, logoUrl, companySettings }: HomeProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'business'>('home');
   const [faqOpen, setFaqOpen] = useState<number | null>(0);
   const [packagesList, setPackagesList] = useState<WifiPackage[]>(PACKAGES);
-  const [promosList, setPromosList] = useState<string[]>([]);
+  const [promosList, setPromosList] = useState<string[]>(companySettings?.promos || []);
+
+  const currentCompanyName = companyName || companySettings?.name || 'Patas Net WiFi';
+  const currentLegalName = companySettings?.legalName || 'PT. AMANUSA TELEMEDIA';
+  const currentTagline = companySettings?.tagline || 'Internet tanpa batas kuota ini siap membawa Anda ke era digital yang lebih cepat dan efisien. Nikmati koneksi 100% fiber optik simetris.';
+  const currentCoverageText = companySettings?.coverageText || '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan';
+
+  // Dynamic coverage parser matching top navbar
+  const parseCoverageStats = (text?: string) => {
+    const defaultStats = { cities: '5', districts: '13', subdistricts: '40' };
+    if (!text) return defaultStats;
+    const parts = text.split(',');
+    const cMatch = parts[0]?.match(/\d+/);
+    const dMatch = parts[1]?.match(/\d+/);
+    const sMatch = parts[2]?.match(/\d+/);
+    return {
+      cities: cMatch ? cMatch[0] : '5',
+      districts: dMatch ? dMatch[0] : '13',
+      subdistricts: sMatch ? sMatch[0] : '40',
+    };
+  };
+  const coverageStats = parseCoverageStats(companySettings?.coverageText);
 
   useEffect(() => {
     fetch('/api/packages')
@@ -211,7 +235,7 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
               Internet <span className="text-blue-400">Stabil dan Cepat</span>, Koneksi Wifi Rumah <span className="text-yellow-400">Unlimited</span>
             </h1>
             <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl mx-auto lg:mx-0">
-              Nikmati internet cepat dengan fiber optik yang mendukung streaming, gaming, dan komunikasi stabil tanpa gangguan. Internet tanpa batas kuota ini siap membawa Anda ke era digital yang lebih cepat dan efisien. Pilih provider internet terbaik dan rasakan pengalaman wifi rumah murah yang stabil dan kencang.
+              {currentTagline} Nikmati koneksi internet rumah dan bisnis tanpa batas kuota dengan 100% fiber optik simetris, ping stabil, dan instalasi terpercaya.
             </p>
             <div className="flex flex-wrap justify-center lg:justify-start gap-3.5 pt-2">
               <button
@@ -242,14 +266,14 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
                   PROMO MEI-JULI
                 </div>
                 <div className="text-right text-xs font-semibold text-slate-300">
-                  PT. AMANUSA TELEMEDIA
+                  {currentLegalName}
                 </div>
               </div>
 
               {/* Graphic element representing high-speed data flow */}
               <div className="my-auto space-y-5 text-center">
                 <div className="mx-auto flex justify-center">
-                  <Logo iconOnly={true} className="scale-125" />
+                  <Logo iconOnly={true} className="scale-125" companyName={currentCompanyName} logoUrl={logoUrl || companySettings?.logoUrl} />
                 </div>
                 <div>
                   <h3 className="font-display font-black text-2xl text-white">UP TO 300 Mbps</h3>
@@ -542,10 +566,13 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
       <section id="cakupan-section" className="py-20 px-4 max-w-7xl mx-auto space-y-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
           <div className="lg:col-span-5 space-y-5">
-            <span className="text-xs text-blue-600 font-bold uppercase tracking-widest">AREA JALUR AKTIF</span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-950">Cakupan Wilayah Patas Net WiFi</h2>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-200/80 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+              <span className="text-[11px] text-blue-700 font-bold uppercase tracking-wider">{currentCoverageText}</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-950">Cakupan Wilayah {currentCompanyName}</h2>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Kami terus memperluas jaringan jalur serat optik kami hingga ke pelosok daerah untuk memastikan setiap warga dapat menikmati jaringan internet cepat berkualitas tinggi tanpa hambatan.
+              Kami terus memperluas jaringan jalur serat optik kami ({currentCoverageText}) untuk memastikan setiap warga dapat menikmati jaringan internet cepat berkualitas tinggi tanpa hambatan.
             </p>
             <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3 text-xs text-blue-800">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -555,17 +582,17 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
 
           <div className="lg:col-span-7 grid grid-cols-3 gap-4 text-center">
             <div className="bg-white/70 backdrop-blur p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-1">
-              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">5</p>
+              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{coverageStats.cities}</p>
               <p className="font-bold text-[11px] sm:text-xs text-slate-900 leading-tight">Kota / Kabupaten</p>
               <p className="text-[10px] text-slate-400">Aktif Terlayani</p>
             </div>
             <div className="bg-white/70 backdrop-blur p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-1">
-              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">13</p>
+              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{coverageStats.districts}</p>
               <p className="font-bold text-[11px] sm:text-xs text-slate-900 leading-tight">Kecamatan</p>
               <p className="text-[10px] text-slate-400">Jalur Terkoneksi</p>
             </div>
             <div className="bg-white/70 backdrop-blur p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-1">
-              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">40</p>
+              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{coverageStats.subdistricts}</p>
               <p className="font-bold text-[11px] sm:text-xs text-slate-900 leading-tight">Kelurahan</p>
               <p className="text-[10px] text-slate-400">Titik Distribusi ODN</p>
             </div>
@@ -651,11 +678,11 @@ export default function Home({ onSelectPackage, onNavigate }: HomeProps) {
             <div className="space-y-4 pt-8 border-t border-white/10 text-xs">
               <div className="flex gap-3">
                 <MapPin className="w-4 h-4 text-yellow-400 shrink-0" />
-                <p>Jakarta Selatan, Indonesia</p>
+                <p>{companySettings?.address || 'Jakarta Selatan, Indonesia'}</p>
               </div>
               <div className="flex gap-3">
                 <Wifi className="w-4 h-4 text-yellow-400 shrink-0" />
-                <p> cs@patasnet.id</p>
+                <p>{companySettings?.email || 'cs@patasnet.id'}</p>
               </div>
             </div>
           </div>

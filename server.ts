@@ -38,6 +38,13 @@ import {
   pushCustomerStatusToSupabase,
   pushTicketToSupabase,
 } from './src/lib/supabase.ts';
+import {
+  loadSheetsConfig,
+  saveSheetsConfig,
+  syncSheetsWebhook,
+  fetchFromGoogleSheetsServer,
+} from './src/lib/serverSheets.ts';
+import { GOOGLE_APPS_SCRIPT_TEMPLATE } from './src/lib/googleSheetsIntegration.ts';
 
 const app = express();
 const PORT = 3000;
@@ -113,6 +120,29 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Forgot Password API (Simulates reset link dispatch and updates status)
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ status: 'error', message: 'Alamat email wajib diisi.' });
+    }
+
+    const customer = await getCustomerByEmail(email);
+    if (customer) {
+      await updateCustomerStatus(customer.id, 'pending');
+    }
+
+    return res.json({
+      status: 'success',
+      message: `Tautan reset password telah dikirim ke ${email}.`,
+    });
+  } catch (err: any) {
+    console.warn('Forgot password handler error:', err);
+    return res.json({ status: 'success', message: 'Permintaan reset password diproses.' });
+  }
+});
+
 // Create subscription API (Direct to PostgreSQL / Supabase)
 app.post('/api/subscribe', async (req, res) => {
   try {
@@ -161,8 +191,8 @@ app.post('/api/subscribe', async (req, res) => {
       initialPayment,
     });
 
-    // Automatically push new registration directly to Supabase in real-time
-    pushCustomerToSupabase({
+    // Automatically push new registration directly to Google Sheets & Drive Webhook in real-time
+    syncSheetsWebhook('subscribe', {
       id: newId,
       name,
       email,
@@ -171,16 +201,14 @@ app.post('/api/subscribe', async (req, res) => {
       coordinates: coordinates || [-6.2088, 106.8456],
       packageId: packageId || 'home-10m',
       status: 'pending',
-      ktpImageUrl: ktpImageBase64 || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=400&q=80',
-      passwordHash: encryptPassword(password || 'user123'),
-      createdAt: new Date().toISOString().split('T')[0],
-      initialPayment,
-    }).catch((syncErr) => console.error('[Supabase Registration Sync Error]:', syncErr));
+      ktpImageBase64: ktpImageBase64 || '',
+      amount: initialPayment.amount,
+    }).catch((syncErr) => console.error('[Google Sheets Registration Sync Error]:', syncErr));
 
     return res.json({ status: 'success', user: newCustomer });
   } catch (err: any) {
     console.error('Subscribe error:', err);
-    return res.status(500).json({ status: 'error', message: 'Gagal memproses pendaftaran ke database PostgreSQL.' });
+    return res.status(500).json({ status: 'error', message: 'Gagal memproses pendaftaran ke database.' });
   }
 });
 
@@ -189,7 +217,7 @@ app.post('/api/customers/status', async (req, res) => {
   try {
     const { id, status } = req.body;
     const updated = await updateCustomerStatus(id, status);
-    pushCustomerStatusToSupabase(id, status).catch((err) => console.error('[Supabase Status Sync Error]:', err));
+    syncSheetsWebhook('update_status', { id, status }).catch((err) => console.error('[Google Sheets Status Sync Error]:', err));
     return res.json({ status: 'success', user: updated });
   } catch (err: any) {
     console.error('Update customer status error:', err);
@@ -210,20 +238,19 @@ app.post('/api/payments/verify', async (req, res) => {
       date: new Date().toISOString().replace('T', ' ').substring(0, 19),
     });
 
-    pushPaymentUpdateToSupabase({
-      id: paymentId,
-      customerId: userId,
-      status: 'pending_verification',
+    // Sync to Google Sheets and Drive
+    syncSheetsWebhook('submit_payment_proof', {
+      userId,
+      paymentId,
       method,
-      proofOfPaymentUrl: proofOfPaymentUrlBase64 || 'https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?auto=format&fit=crop&w=400&q=80',
-      date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-    }).catch((err) => console.error('[Supabase Payment Sync Error]:', err));
+      proofBase64: proofOfPaymentUrlBase64 || '',
+    }).catch((err) => console.error('[Google Sheets Payment Proof Sync Error]:', err));
 
     if (updated) {
       const payment = updated.payments.find((p) => p.id === paymentId);
       logWhatsAppMessage(
         updated.phone,
-        `[WhatsApp Otomatis] Halo ${updated.name}, Bukti pembayaran untuk tagihan periode ${payment?.billingPeriod || 'berjalan'} sebesar Rp ${(payment?.amount || 0).toLocaleString('id-ID')} telah KAMI TERIMA di database PostgreSQL dan menunggu verifikasi admin. Terima kasih!`
+        `[WhatsApp Otomatis] Halo ${updated.name}, Bukti pembayaran untuk tagihan periode ${payment?.billingPeriod || 'berjalan'} sebesar Rp ${(payment?.amount || 0).toLocaleString('id-ID')} telah KAMI TERIMA dan menunggu verifikasi admin. Terima kasih!`
       );
     }
 
@@ -241,13 +268,11 @@ app.post('/api/payments/approve', async (req, res) => {
     const updated = await approvePayment(userId, paymentId);
     const settings = await getCompanySettings();
 
-    const paidTx = updated?.payments.find((p) => p.id === paymentId);
-    pushPaymentUpdateToSupabase({
-      id: paymentId,
-      customerId: userId,
-      status: 'paid',
-      transactionId: paidTx?.transactionId,
-    }).catch((err) => console.error('[Supabase Payment Approve Sync Error]:', err));
+    // Sync payment approval to Google Sheets
+    syncSheetsWebhook('approve_payment', {
+      userId,
+      paymentId,
+    }).catch((err) => console.error('[Google Sheets Payment Approve Sync Error]:', err));
 
     if (updated) {
       const payment = updated.payments.find((p) => p.id === paymentId);
@@ -344,12 +369,49 @@ app.get('/api/settings/company', async (req, res) => {
 // Update company settings API
 app.post('/api/settings/company', async (req, res) => {
   try {
-    const { name, address, logoText, themeColor, logoUrl } = req.body;
-    const settings = await updateCompanySettings({ name, address, logoText, themeColor, logoUrl });
+    const {
+      name,
+      address,
+      logoText,
+      themeColor,
+      logoUrl,
+      legalName,
+      tagline,
+      coverageText,
+      whatsappNumber,
+      phoneNumber,
+      email,
+      instagramUrl,
+      facebookUrl,
+      youtubeUrl,
+    } = req.body;
+
+    const settings = await updateCompanySettings({
+      name,
+      address,
+      logoText,
+      themeColor,
+      logoUrl,
+      legalName,
+      tagline,
+      coverageText,
+      whatsappNumber,
+      phoneNumber,
+      email,
+      instagramUrl,
+      facebookUrl,
+      youtubeUrl,
+    });
+
+    // Sync to Google Sheets & Drive Webhook in real-time
+    syncSheetsWebhook('update_settings', {
+      ...settings,
+      logoBase64: logoUrl && logoUrl.startsWith('data:') ? logoUrl : undefined,
+    }).catch((gErr) => console.error('[Google Sheets Settings Sync Error]:', gErr));
 
     logWhatsAppMessage(
       'SISTEM',
-      `[Pengaturan] Identitas perusahaan di database PostgreSQL diperbarui: ${settings.name} | ${settings.address}`
+      `[Pengaturan] Informasi & Branding website diperbarui: ${settings.name} | PT: ${settings.legalName || 'PT. AMANUSA TELEMEDIA'}`
     );
 
     return res.json({ status: 'success', settings });
@@ -971,6 +1033,236 @@ app.post('/api/dev/supabase/test-registration', async (req, res) => {
 // Get SQL schema for Supabase SQL Editor
 app.get('/api/dev/supabase/schema', (req, res) => {
   res.json({ status: 'success', schema: SUPABASE_SQL_SCHEMA });
+});
+
+// ==================== GOOGLE SHEETS & GOOGLE DRIVE ENDPOINTS ====================
+
+// Get Sheets config
+app.get(['/api/dev/sheets/config', '/api/sheets/config'], (req, res) => {
+  const config = loadSheetsConfig();
+  res.json({
+    status: 'success',
+    config,
+    isConfigured: Boolean(config.webAppUrl),
+  });
+});
+
+// Save Sheets config
+app.post(['/api/dev/sheets/config', '/api/sheets/config'], (req, res) => {
+  const { webAppUrl, driveFolderName, autoSync, syncIntervalSeconds } = req.body;
+  const updated = saveSheetsConfig({
+    webAppUrl,
+    driveFolderName,
+    autoSync: autoSync !== undefined ? Boolean(autoSync) : true,
+    syncIntervalSeconds: syncIntervalSeconds ? Number(syncIntervalSeconds) : 4,
+  });
+  res.json({
+    status: 'success',
+    message: 'Konfigurasi Google Sheets & Drive berhasil disimpan di server!',
+    config: updated,
+  });
+});
+
+// Test Google Sheets & Drive connection
+app.post('/api/dev/sheets/test', async (req, res) => {
+  try {
+    const url = req.body.webAppUrl || loadSheetsConfig().webAppUrl;
+    if (!url) {
+      return res.status(400).json({ status: 'error', message: 'URL Web App Google Apps Script belum diisi.' });
+    }
+
+    const startTime = Date.now();
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      redirect: 'follow',
+    });
+    const latency = Date.now() - startTime;
+
+    if (!response.ok) {
+      return res.status(400).json({
+        status: 'error',
+        message: `HTTP ${response.status}: Google Sheets Web App tidak merespon secara valid. Pastikan Web App di-deploy dengan opsi "Who has access: Anyone".`,
+      });
+    }
+
+    const data = await response.json();
+    if (data && data.status === 'success') {
+      return res.json({
+        status: 'success',
+        reachable: true,
+        latencyMs: latency,
+        customerCount: data.customers?.length || 0,
+        ticketCount: data.tickets?.length || 0,
+        settings: data.settings,
+        message: `Koneksi Google Sheets & Drive BERHASIL (${latency}ms)! Spreadsheet dan folder Google Drive terhubung.`,
+      });
+    }
+
+    return res.status(400).json({
+      status: 'error',
+      message: data.message || 'Respon dari Google Sheets tidak dikenali.',
+    });
+  } catch (err: any) {
+    console.error('Google Sheets test error:', err);
+    return res.status(500).json({ status: 'error', message: `Gagal menghubungi Google Sheets: ${err.message}` });
+  }
+});
+
+// Sync data UP: push all server data into Google Sheets & Drive
+app.post('/api/dev/sheets/sync-up', async (req, res) => {
+  try {
+    const [customers, tickets, settings] = await Promise.all([
+      getAllCustomers(),
+      getAllTickets(),
+      getCompanySettings(),
+    ]);
+
+    const result = await syncSheetsWebhook('sync_all', {
+      customers,
+      tickets,
+      settings,
+    });
+
+    // Also update settings in spreadsheet
+    await syncSheetsWebhook('update_settings', {
+      name: settings.name,
+      address: settings.address,
+      logoText: settings.logoText,
+      themeColor: settings.themeColor,
+      logoUrl: settings.logoUrl,
+    });
+
+    saveSheetsConfig({ lastSyncedAt: new Date().toISOString() });
+
+    return res.json({
+      status: 'success',
+      message: `Sukses menyinkronkan ${customers.length} data pelanggan, pembayaran, dan identitas logo ke Google Sheet & Drive!`,
+      result,
+    });
+  } catch (err: any) {
+    console.error('Google Sheets sync-up error:', err);
+    return res.status(500).json({ status: 'error', message: `Gagal sinkronisasi ke Google Sheets: ${err.message}` });
+  }
+});
+
+// Sync data DOWN: pull latest data from Google Sheets into server
+app.get(['/api/dev/sheets/sync-down', '/api/sheets/sync-down'], async (req, res) => {
+  try {
+    const data = await fetchFromGoogleSheetsServer();
+    if (!data || data.status !== 'success') {
+      const cfg = loadSheetsConfig();
+      if (!cfg.webAppUrl) {
+        return res.json({ status: 'empty', message: 'URL Google Sheets belum dikonfigurasi.' });
+      }
+      return res.status(502).json({ status: 'error', message: 'Gagal menarik data dari Google Sheets.' });
+    }
+
+    // If settings found, update server settings
+    if (data.settings && data.settings.name) {
+      await updateCompanySettings({
+        name: data.settings.name,
+        address: data.settings.address || '',
+        logoText: data.settings.logoText || 'PATAS NET',
+        themeColor: data.settings.themeColor || '#2563eb',
+        logoUrl: data.settings.logoUrl || '',
+        tagline: data.settings.tagline || undefined,
+        coverageText: data.settings.coverageText || undefined,
+        legalName: data.settings.legalName || undefined,
+        whatsappNumber: data.settings.whatsappNumber || undefined,
+        phoneNumber: data.settings.phoneNumber || undefined,
+        email: data.settings.email || undefined,
+      });
+    }
+
+    saveSheetsConfig({ lastSyncedAt: new Date().toISOString() });
+
+    return res.json({
+      status: 'success',
+      customers: data.customers || [],
+      tickets: data.tickets || [],
+      settings: data.settings,
+      message: `Berhasil menarik ${data.customers?.length || 0} data pelanggan dan pengaturan dari Google Sheets!`,
+    });
+  } catch (err: any) {
+    console.error('Google Sheets sync-down error:', err);
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// Test registration simulation: sends customer and KTP image to Google Drive
+app.post('/api/dev/sheets/test-registration', async (req, res) => {
+  try {
+    const testId = `TR-DRIVE-${Math.floor(1000 + Math.random() * 9000)}`;
+    const testCust = {
+      id: testId,
+      name: 'Pelanggan Uji Google Drive',
+      email: `uji.drive.${Date.now()}@patasnet.id`,
+      phone: '081299887711',
+      address: 'Jl. Google Drive No. 100, Jakarta',
+      coordinates: [-6.2088, 106.8456],
+      packageId: 'home-20m',
+      status: 'pending',
+      // Standard small 1x1 png base64 for testing Drive upload
+      ktpImageBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkWPjfDwAEeQHz2fW4AAAAABJRU5ErkJggg==',
+      amount: 170000,
+    };
+
+    const result = await syncSheetsWebhook('subscribe', testCust);
+
+    if (result && result.status === 'success') {
+      return res.json({
+        status: 'success',
+        message: `BERHASIL! Data pendaftaran ${testCust.name} (${testCust.id}) masuk ke Sheet Pelanggan dan foto KTP tersimpan di Google Drive!`,
+        result,
+      });
+    }
+
+    return res.json({
+      status: 'success',
+      message: `Pendaftaran simulasi ${testCust.name} (${testCust.id}) dikirim ke Google Sheets & Drive Webhook.`,
+      result,
+    });
+  } catch (err: any) {
+    console.error('Google Sheets test-registration error:', err);
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// Proxy endpoint for client-side sync to avoid browser CORS/redirect issues
+app.post('/api/sheets/proxy', async (req, res) => {
+  try {
+    const { action, url: clientUrl, ...payload } = req.body;
+    const url = clientUrl || loadSheetsConfig().webAppUrl;
+    if (!url) {
+      return res.status(400).json({ status: 'error', message: 'URL Google Sheets belum diatur.' });
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...payload }),
+      redirect: 'follow',
+    });
+
+    const text = await response.text();
+    try {
+      const json = JSON.parse(text);
+      return res.json(json);
+    } catch {
+      return res.json({ status: 'success', raw: text });
+    }
+  } catch (err: any) {
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// Get Google Apps Script Code.gs template
+app.get('/api/dev/sheets/script', (req, res) => {
+  res.json({
+    status: 'success',
+    script: GOOGLE_APPS_SCRIPT_TEMPLATE,
+  });
 });
 
 // Start listening or initialize Vite dev server

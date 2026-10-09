@@ -14,31 +14,47 @@ import {
   CheckCircle,
   AlertTriangle,
   LogIn,
-  UserPlus
+  UserPlus,
+  KeyRound,
+  ArrowLeft,
+  CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
 import Logo from './Logo';
 import GoogleAuthModal from './GoogleAuthModal';
 import { PACKAGES } from './Home';
+import { requestPasswordResetLocally, resetCustomerPasswordLocally } from '../lib/clientFallback';
 
 interface LoginViewProps {
   onLoginSuccess: (userData: any) => void;
   onNavigateToSubscribe: () => void;
   companyName: string;
   themeColor?: string;
+  logoUrl?: string;
+  tagline?: string;
 }
 
 export default function LoginView({
   onLoginSuccess,
   onNavigateToSubscribe,
   companyName,
+  logoUrl,
+  tagline,
 }: LoginViewProps) {
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot-password' | 'reset-password'>('login');
   const [role, setRole] = useState<'customer' | 'admin' | 'developer'>('customer');
 
   // Login form state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Forgot password form state
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSuccessData, setForgotSuccessData] = useState<any>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   // Quick register form state
   const [regName, setRegName] = useState('');
@@ -131,6 +147,67 @@ export default function LoginView({
     }
   };
 
+  const handleForgotSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    if (!forgotEmail.trim()) {
+      setErrorMessage('Harap masukkan alamat email Anda.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = requestPasswordResetLocally(forgotEmail.trim());
+      if (res.success) {
+        setForgotSuccessData(res);
+        setSuccessMessage(res.message);
+      } else {
+        setErrorMessage(res.message);
+      }
+    } catch {
+      setErrorMessage('Gagal memproses permintaan reset password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    if (!newPassword || newPassword.length < 4) {
+      setErrorMessage('Kata sandi baru minimal 4 karakter.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('Konfirmasi kata sandi tidak cocok.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const ok = resetCustomerPasswordLocally(forgotEmail, newPassword);
+      if (ok) {
+        setSuccessMessage('Kata sandi berhasil diperbarui! Status akun di local storage telah dipulihkan menjadi ACTIVE.');
+        setPassword(newPassword);
+        setEmail(forgotEmail);
+        setTimeout(() => {
+          setAuthMode('login');
+          setForgotSuccessData(null);
+        }, 1500);
+      } else {
+        setErrorMessage('Gagal memperbarui kata sandi di penyimpanan.');
+      }
+    } catch {
+      setErrorMessage('Terjadi kesalahan saat menyimpan kata sandi baru.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const autofillCredential = (targetRole: 'customer' | 'admin' | 'developer') => {
     setRole(targetRole);
     setAuthMode('login');
@@ -139,7 +216,7 @@ export default function LoginView({
       setEmail('budi@gmail.com');
       setPassword('user123');
     } else if (targetRole === 'admin') {
-      setEmail('admin@taranet.id');
+      setEmail('admin@patasnet.id');
       setPassword('admin');
     } else {
       setEmail('ajayrostaman@gmail.com');
@@ -157,25 +234,36 @@ export default function LoginView({
           {/* Header & Logo */}
           <div className="text-center space-y-2">
             <div className="inline-block p-1 bg-white/5 rounded-2xl border border-white/10 shadow-inner">
-              <Logo companyName={companyName} />
+              <Logo companyName={companyName} logoUrl={logoUrl} tagline={tagline} />
             </div>
             <h2 className="text-xl font-black text-white tracking-tight">
-              {authMode === 'login' ? 'Portal Masuk Layanan' : 'Daftar Pelanggan Baru'}
+              {authMode === 'login'
+                ? 'Portal Masuk Layanan'
+                : authMode === 'forgot-password'
+                ? 'Pemulihan Kata Sandi'
+                : authMode === 'reset-password'
+                ? 'Atur Ulang Kata Sandi'
+                : 'Daftar Pelanggan Baru'}
             </h2>
             <p className="text-xs text-slate-400">
               {authMode === 'login'
                 ? `Kelola tagihan, cek paket, dan jaringan ${companyName}`
+                : authMode === 'forgot-password'
+                ? 'Minta tautan reset via email & perbarui status akun di local storage'
+                : authMode === 'reset-password'
+                ? 'Buat kata sandi baru untuk memulihkan akun Anda'
                 : `Daftar cepat WiFi dan nikmati koneksi internet unlimited`}
             </p>
           </div>
 
-          {/* Mode Switcher: Masuk vs Daftar Baru */}
+          {/* Mode Switcher: Masuk vs Daftar Baru vs Lupa Password */}
           <div className="p-1 bg-slate-950/70 border border-slate-800 rounded-2xl flex items-center gap-1">
             <button
               type="button"
               onClick={() => {
                 setAuthMode('login');
                 setErrorMessage('');
+                setSuccessMessage('');
               }}
               className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
                 authMode === 'login'
@@ -192,6 +280,7 @@ export default function LoginView({
                 setAuthMode('register');
                 setRole('customer');
                 setErrorMessage('');
+                setSuccessMessage('');
               }}
               className={`flex-1 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
                 authMode === 'register'
@@ -202,6 +291,19 @@ export default function LoginView({
               <UserPlus className="w-3.5 h-3.5" />
               <span>Daftar Baru</span>
             </button>
+            {(authMode === 'forgot-password' || authMode === 'reset-password') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMessage('');
+                  setSuccessMessage('');
+                }}
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-amber-600/30 text-amber-300 border border-amber-500/40 flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>Reset Sandi</span>
+              </button>
+            )}
           </div>
 
           {/* GOOGLE ONE-CLICK AUTH BUTTON */}
@@ -325,7 +427,7 @@ export default function LoginView({
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder={
                       role === 'admin'
-                        ? 'admin@taranet.id'
+                        ? 'admin@patasnet.id'
                         : role === 'developer'
                         ? 'ajayrostaman@gmail.com'
                         : 'budi@gmail.com'
@@ -338,9 +440,24 @@ export default function LoginView({
 
               {/* Password Field */}
               <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Kata Sandi *
-                </label>
+                <div className="flex justify-between items-center">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Kata Sandi *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('forgot-password');
+                      setForgotEmail(email);
+                      setErrorMessage('');
+                      setSuccessMessage('');
+                      setForgotSuccessData(null);
+                    }}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 font-bold hover:underline"
+                  >
+                    Lupa Password?
+                  </button>
+                </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
                     <Lock className="w-4 h-4" />
@@ -379,6 +496,272 @@ export default function LoginView({
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
+              </button>
+            </form>
+          ) : authMode === 'forgot-password' ? (
+            /* FORGOT PASSWORD FORM & SIMULATED FLOW */
+            <div className="space-y-4 text-xs">
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('login');
+                    setErrorMessage('');
+                    setSuccessMessage('');
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                  title="Kembali ke Login"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h3 className="font-extrabold text-sm text-white flex items-center gap-1.5">
+                    <KeyRound className="w-4 h-4 text-blue-400" />
+                    Permintaan Reset Password
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    Simulasi pengiriman tautan & pembaruan status akun di local storage
+                  </p>
+                </div>
+              </div>
+
+              {forgotSuccessData ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-emerald-950/60 border border-emerald-700/80 rounded-2xl flex items-start gap-3 text-emerald-200">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-xs">Tautan Reset Password Terkirim!</p>
+                      <p className="text-[11px] text-emerald-300 leading-relaxed">
+                        Sistem telah memperbarui status akun di local storage menjadi{' '}
+                        <strong className="font-mono bg-emerald-900/80 text-emerald-100 px-1.5 py-0.5 rounded border border-emerald-600/40">
+                          PENDING (Reset Requested)
+                        </strong>
+                        .
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Simulated Email & Reset Link Box */}
+                  <div className="p-4 bg-slate-950 text-slate-100 rounded-2xl space-y-3 border border-slate-800 shadow-xl">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-[10px]">
+                      <span className="font-bold text-emerald-400 flex items-center gap-1.5">
+                        <Mail className="w-3.5 h-3.5" /> SIMULASI EMAIL RESET TERKIRIM
+                      </span>
+                      <span className="font-mono text-[9px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                        Local Storage
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 text-[11px] leading-relaxed">
+                      <p>
+                        <span className="text-slate-400">Penerima:</span>{' '}
+                        <strong className="text-white font-mono">{forgotSuccessData.user?.email || forgotEmail}</strong>
+                      </p>
+                      {forgotSuccessData.user && (
+                        <>
+                          <p>
+                            <span className="text-slate-400">Nama Pelanggan:</span>{' '}
+                            <strong className="text-white">{forgotSuccessData.user.name}</strong>
+                          </p>
+                          <p className="flex items-center gap-1.5">
+                            <span className="text-slate-400">Status Saat Ini di LocalStorage:</span>
+                            <span className="bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded text-[10px] uppercase font-mono border border-amber-500/30">
+                              {forgotSuccessData.user.status || 'pending'} (Reset Diminta)
+                            </span>
+                          </p>
+                        </>
+                      )}
+                      <p className="text-[10px] text-slate-400 pt-2 border-t border-slate-800 break-all">
+                        Tautan Reset:{' '}
+                        <span className="font-mono text-emerald-300 text-[10px]">
+                          {forgotSuccessData.resetLink}
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-800 flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('reset-password');
+                          setNewPassword('');
+                          setConfirmPassword('');
+                          setErrorMessage('');
+                          setSuccessMessage('');
+                        }}
+                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-md active:scale-98"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>Buka Tautan Reset & Masukkan Password Baru</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setForgotSuccessData(null);
+                      setErrorMessage('');
+                      setSuccessMessage('');
+                    }}
+                    className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl transition text-xs"
+                  >
+                    Kembali ke Halaman Login
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotSubmit} className="space-y-4">
+                  <p className="text-slate-400 leading-relaxed text-[11px]">
+                    Ketik alamat email Anda yang terdaftar. Sistem akan mensimulasikan pengiriman tautan reset via email dan memperbarui status akun Anda di local storage menjadi pending.
+                  </p>
+
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider" htmlFor="forgot-email">
+                      Alamat Email *
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                        <Mail className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="email"
+                        id="forgot-email"
+                        value={forgotEmail}
+                        onChange={(e) => setForgotEmail(e.target.value)}
+                        placeholder="contoh: budi@gmail.com"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 focus:outline-none text-white font-mono text-xs"
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {loading ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Mengirim Tautan...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="w-3.5 h-3.5" />
+                        <span>Kirim Tautan Reset via Email</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setErrorMessage('');
+                      setSuccessMessage('');
+                    }}
+                    className="w-full py-2 text-slate-400 hover:text-white font-bold transition text-xs text-center"
+                  >
+                    Batal, Kembali ke Login
+                  </button>
+                </form>
+              )}
+            </div>
+          ) : authMode === 'reset-password' ? (
+            /* RESET PASSWORD FORM */
+            <form onSubmit={handleResetSubmit} className="space-y-4 text-xs">
+              <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('forgot-password')}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                  title="Kembali"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div>
+                  <h3 className="font-extrabold text-sm text-white flex items-center gap-1.5">
+                    <KeyRound className="w-4 h-4 text-emerald-400" />
+                    Buat Kata Sandi Baru
+                  </h3>
+                  <p className="text-[10px] text-slate-400">
+                    Atur ulang password untuk akun: <strong className="text-white font-mono">{forgotEmail}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Kata Sandi Baru *
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Minimal 4 karakter"
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-none text-white text-xs"
+                    required
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Konfirmasi Kata Sandi *
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Ulangi kata sandi baru"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-1 focus:ring-emerald-500 focus:outline-none text-white text-xs"
+                    required
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md transition active:scale-98 flex items-center justify-center gap-1.5 text-xs disabled:opacity-50"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Simpan Password & Pulihkan Akun (Aktif)</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAuthMode('login')}
+                className="w-full py-2 text-slate-400 hover:text-white font-bold transition text-xs text-center"
+              >
+                Batal, Kembali ke Login
               </button>
             </form>
           ) : (

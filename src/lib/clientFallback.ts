@@ -24,46 +24,84 @@ export function saveGoogleSheetsWebhookUrl(url: string): void {
 // Background sync to Google Sheets & Drive Webhook if configured
 export async function syncToGoogleSheets(action: string, payload: any): Promise<boolean> {
   const url = getGoogleSheetsWebhookUrl();
-  if (!url) return false;
+  let success = false;
 
-  try {
-    // Send using no-cors or standard fetch
-    await fetch(url, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ action, ...payload }),
-    });
-    return true;
-  } catch (err) {
-    console.warn('[Google Sheets Sync Error]:', err);
-    return false;
+  // 1. If URL configured in client, attempt direct send
+  if (url) {
+    try {
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action, ...payload }),
+      });
+      success = true;
+    } catch (err) {
+      console.warn('[Google Sheets Direct Sync Error]:', err);
+    }
   }
+
+  // 2. Also send through server-side proxy so that all devices/servers stay in sync
+  try {
+    const sRes = await fetch('/api/sheets/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, ...payload, url }),
+    });
+    if (sRes.ok) success = true;
+  } catch {
+    // server might be offline if static
+  }
+
+  return success;
 }
 
 // 2-Way Realtime synchronization: Fetch live data from Google Sheets & Drive Web App
-export async function fetchFromGoogleSheets(): Promise<{ customers?: CustomerUser[]; tickets?: SupportTicket[] } | null> {
+export async function fetchFromGoogleSheets(): Promise<{
+  customers?: CustomerUser[];
+  tickets?: SupportTicket[];
+  settings?: any;
+} | null> {
   const url = getGoogleSheetsWebhookUrl();
-  if (!url) return null;
-
+  
+  // Try direct or via server sync
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+    let data: any = null;
+    
+    // First try server proxy if online
+    try {
+      const serverRes = await fetch('/api/sheets/sync-down');
+      if (serverRes.ok) {
+        const sJson = await serverRes.json();
+        if (sJson && sJson.status === 'success') {
+          data = sJson;
+        }
+      }
+    } catch {
+      // server offline
+    }
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.status === 'success' && Array.isArray(data.customers) && data.customers.length > 0) {
-        // Merge or replace local customers to maintain 2-way consistency
+    // If server didn't have it, try direct client fetch
+    if (!data && url) {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+      if (res.ok) {
+        data = await res.json();
+      }
+    }
+
+    if (data && data.status === 'success') {
+      const customers = Array.isArray(data.customers) ? data.customers : [];
+      if (customers.length > 0) {
         const localCustomers = getLocalCustomers();
-        const mergedCustomers: CustomerUser[] = [...data.customers];
+        const mergedCustomers: CustomerUser[] = [...customers];
 
-        // Ensure newly created local customers that haven't finished roundtrip aren't deleted
         localCustomers.forEach((lc) => {
           if (!mergedCustomers.some((mc) => mc.id === lc.id || mc.email === lc.email)) {
             mergedCustomers.push(lc);
@@ -71,16 +109,23 @@ export async function fetchFromGoogleSheets(): Promise<{ customers?: CustomerUse
         });
 
         saveLocalCustomers(mergedCustomers);
-
-        if (Array.isArray(data.tickets) && data.tickets.length > 0) {
-          saveLocalTickets(data.tickets);
-        }
-
-        return { customers: mergedCustomers, tickets: data.tickets || [] };
       }
+
+      if (Array.isArray(data.tickets) && data.tickets.length > 0) {
+        saveLocalTickets(data.tickets);
+      }
+
+      if (data.settings && typeof data.settings === 'object') {
+        saveLocalSettings(data.settings);
+      }
+
+      return {
+        customers: getLocalCustomers(),
+        tickets: data.tickets || getLocalTickets(),
+        settings: data.settings || getLocalSettings()
+      };
     }
   } catch (err) {
-    // Google Apps Script redirect or CORS may occur; fallback smoothly to localStorage
     console.warn('[Google Sheets 2-Way Fetch Warning]:', err);
   }
   return null;
@@ -88,11 +133,45 @@ export async function fetchFromGoogleSheets(): Promise<{ customers?: CustomerUse
 
 export const DEFAULT_COMPANY_SETTINGS = {
   name: 'Patas Net WiFi',
+  legalName: 'PT. AMANUSA TELEMEDIA',
+  tagline: 'Internet Fiber Optic Cepat, Stabil & Tanpa Batas Kuota',
   address: 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110',
   logoText: 'PATAS NET',
   themeColor: '#2563eb',
   logoUrl: '',
+  coverageText: '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan',
+  whatsappNumber: '0812-3456-7890',
+  phoneNumber: '+62 899-3299-977',
+  email: 'cs@patasnet.id',
+  instagramUrl: 'https://instagram.com/patasnet.id',
+  facebookUrl: 'https://facebook.com/patasnet.id',
+  youtubeUrl: 'https://youtube.com/@patasnet',
+  promos: [] as string[],
 };
+
+export function getLocalSettings(): typeof DEFAULT_COMPANY_SETTINGS {
+  try {
+    const raw = localStorage.getItem(STORAGE_SETTINGS_KEY);
+    if (raw) {
+      return { ...DEFAULT_COMPANY_SETTINGS, ...JSON.parse(raw) };
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_COMPANY_SETTINGS;
+}
+
+export function saveLocalSettings(settings: Partial<typeof DEFAULT_COMPANY_SETTINGS>): void {
+  try {
+    const current = getLocalSettings();
+    const updated = { ...current, ...settings };
+    localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(updated));
+    // Realtime sync to Google Sheets as Primary Database
+    syncToGoogleSheets('update_settings', updated);
+  } catch (e) {
+    console.warn('Failed to save local settings:', e);
+  }
+}
 
 export const DEFAULT_PACKAGES: WifiPackage[] = [
   {
@@ -515,4 +594,119 @@ export function addLocalCustomer(customer: CustomerUser): void {
     status: customer.status,
     ktpImageBase64: customer.ktpImageUrl,
   });
+}
+
+// Request password reset link (Simulates the flow by updating the user's status in local storage)
+export function requestPasswordResetLocally(email: string): {
+  success: boolean;
+  message: string;
+  user?: CustomerUser;
+  resetLink?: string;
+} {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (!cleanEmail) {
+    return { success: false, message: 'Harap masukkan alamat email Anda.' };
+  }
+
+  const customers = getLocalCustomers();
+  let index = customers.findIndex((c) => c.email.toLowerCase() === cleanEmail);
+
+  // Generate simulated reset token & link
+  const token = 'rst_' + Math.random().toString(36).substring(2, 10);
+  const resetLink = `${window.location.origin}/?mode=reset-password&email=${encodeURIComponent(cleanEmail)}&token=${token}`;
+
+  let target: CustomerUser;
+  if (index === -1) {
+    // If not found in default list, create/simulate user record so testing with any email works smoothly
+    target = {
+      id: 'cust-' + Math.random().toString(36).substring(2, 9),
+      name: cleanEmail.split('@')[0],
+      email: cleanEmail,
+      phone: '081234567890',
+      address: 'Alamat Pelanggan',
+      coordinates: [-6.2088, 106.8456],
+      packageId: 'home-20m',
+      status: 'pending',
+      payments: [],
+      createdAt: new Date().toISOString(),
+    };
+    customers.push(target);
+    index = customers.length - 1;
+  } else {
+    target = customers[index];
+  }
+
+  // Update the user's status in local storage to simulate the workflow
+  const updatedCustomer: CustomerUser = {
+    ...target,
+    status: 'pending', // Simulating the flow by updating user's status in local storage
+    passwordResetRequested: true,
+    resetRequestedAt: new Date().toISOString(),
+    resetToken: token,
+  };
+
+  customers[index] = updatedCustomer;
+  saveLocalCustomers(customers);
+
+  // Store password reset request metadata and status in local storage
+  try {
+    localStorage.setItem('user_status', 'pending');
+    localStorage.setItem('currentUserStatus', 'pending');
+    localStorage.setItem(`user_status_${cleanEmail}`, 'pending');
+    localStorage.setItem(
+      `patasnet_reset_${cleanEmail}`,
+      JSON.stringify({
+        email: cleanEmail,
+        userId: updatedCustomer.id,
+        name: updatedCustomer.name,
+        previousStatus: target.status,
+        updatedStatus: 'pending',
+        resetToken: token,
+        resetLink,
+        requestedAt: new Date().toISOString(),
+      })
+    );
+  } catch {}
+
+  // Sync to sheets or server if available
+  try {
+    fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail }),
+    }).catch(() => {});
+  } catch {}
+
+  return {
+    success: true,
+    message: `Tautan reset password berhasil dikirim ke ${cleanEmail}. Status akun berhasil diperbarui di penyimpanan lokal (Status: PENDING - Menunggu Reset).`,
+    user: updatedCustomer,
+    resetLink,
+  };
+}
+
+// Complete password reset simulation locally
+export function resetCustomerPasswordLocally(email: string, _newPassword?: string): boolean {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const customers = getLocalCustomers();
+  const index = customers.findIndex((c) => c.email.toLowerCase() === cleanEmail);
+
+  if (index !== -1) {
+    customers[index] = {
+      ...customers[index],
+      status: 'active', // Restores user to active status after reset
+      passwordResetRequested: false,
+      resetToken: undefined,
+    };
+    saveLocalCustomers(customers);
+  }
+
+  try {
+    localStorage.setItem('user_status', 'active');
+    localStorage.setItem('currentUserStatus', 'active');
+    localStorage.setItem(`user_status_${cleanEmail}`, 'active');
+    localStorage.removeItem(`patasnet_reset_${cleanEmail}`);
+  } catch {}
+
+  return true;
 }

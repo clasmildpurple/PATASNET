@@ -3,10 +3,11 @@
  * 
  * PETUNJUK PEMASANGAN DI GOOGLE SPREADSHEET:
  * 1. Buat Google Spreadsheet baru di Google Drive Anda (beri nama misal: "Database Patas Net WiFi").
- * 2. Buat 3 Sheet (Tab):
+ * 2. Buat 4 Sheet (Tab):
  *    - "Pelanggan"
  *    - "Pembayaran"
  *    - "Tiket"
+ *    - "Pengaturan"
  * 3. Klik menu "Extensions" (Ekstensi) > "Apps Script".
  * 4. Hapus seluruh kode default di Code.gs, lalu paste seluruh kode di bawah ini.
  * 5. Klik "Deploy" (Terapkan) > "New deployment" (Penerapan baru).
@@ -16,12 +17,12 @@
  *    - Execute as: "Me" (Saya)
  *    - Who has access: "Anyone" (Siapa saja, bahkan anonim)
  * 8. Klik Deploy & berikan otorisasi izin Google Drive & Sheets.
- * 9. Salin "Web App URL" (berakhiran /exec) dan tempel ke Dashboard Admin Patas Net pada tab "Google Sheets & Drive".
+ * 9. Salin "Web App URL" (berakhiran /exec) dan tempel ke Dashboard Admin atau Dashboard Developer Patas Net.
  */
 
 export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * Google Apps Script Web App - Backend Database Patas Net WiFi
- * Otomatis sinkronisasi data pelanggan ke Google Sheet dan foto KTP/Bukti Bayar ke Google Drive
+ * Otomatis sinkronisasi data pelanggan ke Google Sheet dan foto KTP, Bukti Bayar & Logo ke Google Drive
  */
 
 function setupHeaders() {
@@ -55,6 +56,22 @@ function setupHeaders() {
     ]);
     sheetTiket.getRange("A1:G1").setFontWeight("bold").setBackground("#f59e0b").setFontColor("#ffffff");
   }
+
+  // Sheet 4: Pengaturan & Logo
+  var sheetPengaturan = ss.getSheetByName("Pengaturan") || ss.insertSheet("Pengaturan");
+  if (sheetPengaturan.getLastRow() === 0) {
+    sheetPengaturan.appendRow(["Key", "Value", "UpdatedAt"]);
+    sheetPengaturan.appendRow(["name", "Patas Net WiFi", new Date()]);
+    sheetPengaturan.appendRow(["logoText", "PATAS NET", new Date()]);
+    sheetPengaturan.appendRow(["logoUrl", "", new Date()]);
+    sheetPengaturan.appendRow(["address", "Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110", new Date()]);
+    sheetPengaturan.appendRow(["themeColor", "#2563eb", new Date()]);
+    sheetPengaturan.appendRow(["tagline", "Internet Cepat Harga Merakyat", new Date()]);
+    sheetPengaturan.appendRow(["coverageText", "5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan", new Date()]);
+    sheetPengaturan.appendRow(["legalName", "PT. AMANUSA TELEMEDIA", new Date()]);
+    sheetPengaturan.appendRow(["whatsappNumber", "0812-3456-7890", new Date()]);
+    sheetPengaturan.getRange("A1:C1").setFontWeight("bold").setBackground("#6366f1").setFontColor("#ffffff");
+  }
 }
 
 function getOrCreateFolder(folderName) {
@@ -69,11 +86,20 @@ function getOrCreateFolder(folderName) {
 
 function saveBase64ToDrive(base64String, fileName, folderName) {
   try {
-    if (!base64String || !base64String.includes(",")) return "";
+    if (!base64String || typeof base64String !== 'string') return "";
     var folder = getOrCreateFolder(folderName);
-    var parts = base64String.split(",");
-    var mime = parts[0].split(":")[1].split(";")[0];
-    var data = Utilities.base64Decode(parts[1]);
+    var mime = "image/png";
+    var base64Data = base64String;
+    
+    if (base64String.indexOf(",") !== -1) {
+      var parts = base64String.split(",");
+      if (parts[0].indexOf(":") !== -1 && parts[0].indexOf(";") !== -1) {
+        mime = parts[0].split(":")[1].split(";")[0];
+      }
+      base64Data = parts[1];
+    }
+    
+    var data = Utilities.base64Decode(base64Data);
     var blob = Utilities.newBlob(data, mime, fileName);
     var file = folder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -87,10 +113,12 @@ function saveBase64ToDrive(base64String, fileName, folderName) {
 
 function doGet(e) {
   try {
+    setupHeaders();
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheetPelanggan = ss.getSheetByName("Pelanggan");
     var sheetPembayaran = ss.getSheetByName("Pembayaran");
     var sheetTiket = ss.getSheetByName("Tiket");
+    var sheetPengaturan = ss.getSheetByName("Pengaturan");
 
     var customers = [];
     if (sheetPelanggan && sheetPelanggan.getLastRow() > 1) {
@@ -160,10 +188,28 @@ function doGet(e) {
       }
     }
 
+    // Read Settings & Logo
+    var settings = {
+      name: "Patas Net WiFi",
+      logoText: "PATAS NET",
+      logoUrl: "",
+      address: "Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110",
+      themeColor: "#2563eb"
+    };
+    if (sheetPengaturan && sheetPengaturan.getLastRow() > 1) {
+      var sData = sheetPengaturan.getDataRange().getValues();
+      for (var s = 1; s < sData.length; s++) {
+        var k = String(sData[s][0]).trim();
+        var v = String(sData[s][1] || "");
+        if (k) settings[k] = v;
+      }
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
       customers: customers,
       tickets: tickets,
+      settings: settings,
       timestamp: new Date().toISOString()
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -185,7 +231,7 @@ function doPost(e) {
       var sheet = ss.getSheetByName("Pelanggan");
       var ktpUrl = "";
       if (payload.ktpImageBase64) {
-        ktpUrl = saveBase64ToDrive(payload.ktpImageBase64, "KTP_" + payload.name + "_" + payload.id + ".jpg", "PatasNet_Drive_KTP");
+        ktpUrl = saveBase64ToDrive(payload.ktpImageBase64, "KTP_" + (payload.name || "user") + "_" + (payload.id || Date.now()) + ".jpg", "PatasNet_Drive_KTP");
       }
       
       sheet.appendRow([
@@ -287,9 +333,148 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({ status: "success" })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (action === "update_settings" || action === "update_logo") {
+      var sheetPeng = ss.getSheetByName("Pengaturan");
+      var finalLogoUrl = payload.logoUrl || "";
+      
+      // Jika dikirimkan gambar logo baru dalam format base64, simpan langsung ke Google Drive
+      if (payload.logoBase64) {
+        finalLogoUrl = saveBase64ToDrive(payload.logoBase64, "LOGO_PATASNET_" + Date.now() + ".png", "PatasNet_Drive_Logos");
+      }
+
+      var sData = sheetPeng.getDataRange().getValues();
+      var keysToUpdate = {
+        name: payload.name,
+        logoText: payload.logoText,
+        logoUrl: finalLogoUrl || payload.logoUrl,
+        address: payload.address,
+        themeColor: payload.themeColor,
+        tagline: payload.tagline,
+        coverageText: payload.coverageText,
+        legalName: payload.legalName,
+        whatsappNumber: payload.whatsappNumber
+      };
+
+      for (var key in keysToUpdate) {
+        if (keysToUpdate[key] !== undefined && keysToUpdate[key] !== null) {
+          var found = false;
+          for (var r = 1; r < sData.length; r++) {
+            if (String(sData[r][0]).trim() === key) {
+              sheetPeng.getRange(r + 1, 2).setValue(keysToUpdate[key]);
+              sheetPeng.getRange(r + 1, 3).setValue(new Date());
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            sheetPeng.appendRow([key, keysToUpdate[key], new Date()]);
+          }
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Pengaturan identitas & Logo berhasil diperbarui di Google Sheet & Google Drive!",
+        logoUrl: finalLogoUrl || payload.logoUrl
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "sync_all") {
+      // Batch sync customers and settings
+      if (Array.isArray(payload.customers)) {
+        var sheetPel = ss.getSheetByName("Pelanggan");
+        var existingCustData = sheetPel.getDataRange().getValues();
+        var existingIds = {};
+        for (var ex = 1; ex < existingCustData.length; ex++) {
+          if (existingCustData[ex][1]) existingIds[String(existingCustData[ex][1])] = true;
+        }
+
+        payload.customers.forEach(function(c) {
+          if (!existingIds[String(c.id)]) {
+            sheetPel.appendRow([
+              new Date(c.createdAt || Date.now()),
+              c.id,
+              c.name,
+              c.email,
+              c.phone,
+              c.address,
+              c.coordinates ? c.coordinates.join(", ") : "",
+              c.packageId,
+              c.status || "active",
+              c.ktpImageUrl || ""
+            ]);
+          }
+        });
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "success",
+        message: "Sinkronisasi batch ke Google Sheet berhasil diselesaikan!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     return ContentService.createTextOutput(JSON.stringify({ status: "unknown_action" })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 `;
+
+// Helper methods for client & server
+export const STORAGE_SHEETS_CONFIG_KEY = 'patasnet_google_sheets_config_v2';
+
+export interface GoogleSheetsConfig {
+  webAppUrl: string;
+  driveFolderName?: string;
+  autoSync?: boolean;
+  syncIntervalSeconds?: number;
+  lastSyncedAt?: string;
+}
+
+export function getStoredSheetsConfig(): GoogleSheetsConfig {
+  try {
+    const raw = localStorage.getItem(STORAGE_SHEETS_CONFIG_KEY);
+    if (raw) return JSON.parse(raw);
+    const legacyUrl = localStorage.getItem('patasnet_google_sheets_url');
+    if (legacyUrl) {
+      return { webAppUrl: legacyUrl, driveFolderName: 'PatasNet_Drive', autoSync: true, syncIntervalSeconds: 4 };
+    }
+  } catch {
+    // ignore
+  }
+  return { webAppUrl: '', driveFolderName: 'PatasNet_Drive', autoSync: true, syncIntervalSeconds: 4 };
+}
+
+export function saveStoredSheetsConfig(config: GoogleSheetsConfig): void {
+  try {
+    localStorage.setItem(STORAGE_SHEETS_CONFIG_KEY, JSON.stringify(config));
+    if (config.webAppUrl) {
+      localStorage.setItem('patasnet_google_sheets_url', config.webAppUrl);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function pingGoogleSheets(url: string): Promise<{ success: boolean; message: string; data?: any }> {
+  if (!url) return { success: false, message: 'URL Google Sheets belum diisi' };
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.status === 'success') {
+        return {
+          success: true,
+          message: `Koneksi Google Sheets & Drive Berhasil! Ditemukan ${data.customers?.length || 0} pelanggan, ${data.tickets?.length || 0} tiket.`,
+          data
+        };
+      }
+    }
+    return { success: false, message: 'Respon dari Google Sheets tidak valid atau izin Web App belum diatur ke "Anyone".' };
+  } catch (err: any) {
+    return { success: false, message: `Gagal menghubungi Google Sheets: ${err.message || 'CORS / URL tidak valid'}` };
+  }
+}

@@ -32,6 +32,9 @@ export interface CustomerUser {
   payments: PaymentRecord[];
   tickets?: SupportTicket[];
   createdAt: string;
+  passwordResetRequested?: boolean;
+  resetRequestedAt?: string;
+  resetToken?: string;
 }
 
 export interface SupportTicket {
@@ -54,7 +57,18 @@ export interface AppConfig {
 
 export interface CompanySettings {
   name: string;
+  legalName?: string;
+  tagline?: string;
   address: string;
   logoText: string;
   themeColor: string;
+  logoUrl?: string;
+  coverageText?: string;
+  whatsappNumber?: string;
+  phoneNumber?: string;
+  email?: string;
+  instagramUrl?: string;
+  facebookUrl?: string;
+  youtubeUrl?: string;
+  promos?: string[];
 }

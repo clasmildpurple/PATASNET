@@ -6,18 +6,29 @@ interface LogoProps {
   inverse?: boolean;
   companyName?: string;
   logoUrl?: string;
+  tagline?: string;
 }
 
-export default function Logo({ className = '', iconOnly = false, inverse = false, companyName, logoUrl }: LogoProps) {
+export default function Logo({ className = '', iconOnly = false, inverse = false, companyName, logoUrl, tagline }: LogoProps) {
+  const [imageError, setImageError] = React.useState(false);
+
+  // Reset error state when logoUrl changes
+  React.useEffect(() => {
+    setImageError(false);
+  }, [logoUrl]);
+
+  const hasValidLogoImage = Boolean(logoUrl && !imageError && logoUrl.trim() !== '');
+
   return (
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
-      {/* Visual Icon Logo: Intersecting high-speed fiber waves forming a 3D futuristic T or Custom Uploaded Logo */}
+      {/* Visual Icon Logo: Custom Uploaded Logo or Intersecting high-speed fiber waves */}
       <div className="relative flex items-center justify-center shrink-0">
-        {logoUrl ? (
+        {hasValidLogoImage ? (
           <img
             src={logoUrl}
             alt={companyName || 'Logo'}
-            className="w-[42px] h-[42px] object-contain rounded-xl border border-slate-200/50 bg-white p-0.5 shadow-sm"
+            onError={() => setImageError(true)}
+            className="w-[42px] h-[42px] object-contain rounded-xl border border-slate-200/50 bg-white p-0.5 shadow-sm transition-transform duration-300 hover:scale-105"
             referrerPolicy="no-referrer"
           />
         ) : (
@@ -97,9 +108,9 @@ export default function Logo({ className = '', iconOnly = false, inverse = false
       </div>
 
       {!iconOnly && (
-        <div className="flex flex-col items-start leading-none">
-          <div className="flex items-baseline">
-            <span className={`font-display font-black text-2xl tracking-tight ${inverse ? 'text-white' : 'text-slate-900'}`}>
+        <div className="flex flex-col items-start leading-none min-w-0">
+          <div className="flex items-baseline max-w-full">
+            <span className={`font-display font-black text-xl sm:text-2xl tracking-tight truncate ${inverse ? 'text-white' : 'text-slate-900'}`}>
               {(() => {
                 const name = (companyName || 'PATAS NET').trim().toUpperCase();
                 if (name.includes(' ')) {
@@ -125,12 +136,9 @@ export default function Logo({ className = '', iconOnly = false, inverse = false
                 }
               })()}
             </span>
-            <span className={`font-mono text-[10px] font-bold px-1 py-0.5 rounded ml-1 bg-blue-500/10 ${inverse ? 'text-yellow-300' : 'text-blue-600'}`}>
-              FO
-            </span>
           </div>
-          <span className={`text-[9px] font-mono tracking-[0.25em] uppercase font-extrabold mt-0.5 ${inverse ? 'text-slate-300' : 'text-slate-500'}`}>
-            ULTRA BROADBAND
+          <span className={`text-[9px] font-mono tracking-[0.18em] uppercase font-extrabold mt-1 truncate max-w-full ${inverse ? 'text-slate-300' : 'text-slate-500'}`}>
+            {(tagline || 'Internet Fiber Optic').toUpperCase()}
           </span>
         </div>
       )}

@@ -26,9 +26,13 @@ import {
   FileSpreadsheet,
   HardDrive,
   Copy,
-  ExternalLink
+  ExternalLink,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Share2,
+  Save
 } from 'lucide-react';
-import { CustomerUser, PaymentRecord, SupportTicket, WifiPackage } from '../types';
+import { CustomerUser, PaymentRecord, SupportTicket, WifiPackage, CompanySettings } from '../types';
 import { generateCustomerPDFReport } from '../lib/pdfGenerator';
 import { PACKAGES } from './Home';
 import Logo from './Logo';
@@ -61,8 +65,8 @@ interface AdminDashboardProps {
   onVerifyPayment: (userId: string, paymentId: string) => Promise<void>;
   onRejectPayment?: (userId: string, paymentId: string) => Promise<void>;
   whatsappLogs?: any[];
-  companySettings?: { name: string; address: string; logoText: string; themeColor: string; logoUrl?: string; promos?: string[] };
-  onUpdateCompanySettings?: (newSettings: { name: string; address: string; logoText: string; themeColor: string; logoUrl?: string }) => Promise<boolean>;
+  companySettings?: CompanySettings;
+  onUpdateCompanySettings?: (newSettings: Partial<CompanySettings> & { name: string }) => Promise<boolean>;
 }
 
 export default function AdminDashboard({
@@ -92,9 +96,21 @@ export default function AdminDashboard({
     setTimeout(() => setToast(null), 4000);
   };
 
+  // Sidebar visibility state for collapsible left navigation menu
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   // Company Settings form states
   const [companyNameInput, setCompanyNameInput] = useState(companySettings?.name || 'Patas Net WiFi');
-  const [companyAddressInput, setCompanyAddressInput] = useState(companySettings?.address || '');
+  const [companyLegalNameInput, setCompanyLegalNameInput] = useState(companySettings?.legalName || 'PT. AMANUSA TELEMEDIA');
+  const [companyTaglineInput, setCompanyTaglineInput] = useState(companySettings?.tagline || 'Internet Fiber Optic Cepat, Stabil & Tanpa Batas Kuota');
+  const [companyCoverageTextInput, setCompanyCoverageTextInput] = useState(companySettings?.coverageText || '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan');
+  const [companyWhatsappNumberInput, setCompanyWhatsappNumberInput] = useState(companySettings?.whatsappNumber || '0812-3456-7890');
+  const [companyPhoneNumberInput, setCompanyPhoneNumberInput] = useState(companySettings?.phoneNumber || '+62 899-3299-977');
+  const [companyEmailInput, setCompanyEmailInput] = useState(companySettings?.email || 'cs@patasnet.id');
+  const [companyInstagramUrlInput, setCompanyInstagramUrlInput] = useState(companySettings?.instagramUrl || 'https://instagram.com/patasnet.id');
+  const [companyFacebookUrlInput, setCompanyFacebookUrlInput] = useState(companySettings?.facebookUrl || 'https://facebook.com/patasnet.id');
+  const [companyYoutubeUrlInput, setCompanyYoutubeUrlInput] = useState(companySettings?.youtubeUrl || 'https://youtube.com/@patasnet');
+  const [companyAddressInput, setCompanyAddressInput] = useState(companySettings?.address || 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110');
   const [companyLogoTextInput, setCompanyLogoTextInput] = useState(companySettings?.logoText || 'PATAS NET');
   const [companyLogoUrlInput, setCompanyLogoUrlInput] = useState(companySettings?.logoUrl || '');
   const [savingSettings, setSavingSettings] = useState(false);
@@ -108,15 +124,37 @@ export default function AdminDashboard({
   // Sync inputs with props if they load later
   useEffect(() => {
     if (companySettings) {
-      setCompanyNameInput(companySettings.name);
-      setCompanyAddressInput(companySettings.address);
-      setCompanyLogoTextInput(companySettings.logoText);
+      setCompanyNameInput(companySettings.name || 'Patas Net WiFi');
+      setCompanyLegalNameInput(companySettings.legalName || 'PT. AMANUSA TELEMEDIA');
+      setCompanyTaglineInput(companySettings.tagline || 'Internet Fiber Optic Cepat, Stabil & Tanpa Batas Kuota');
+      setCompanyCoverageTextInput(companySettings.coverageText || '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan');
+      setCompanyWhatsappNumberInput(companySettings.whatsappNumber || '0812-3456-7890');
+      setCompanyPhoneNumberInput(companySettings.phoneNumber || '+62 899-3299-977');
+      setCompanyEmailInput(companySettings.email || 'cs@patasnet.id');
+      setCompanyInstagramUrlInput(companySettings.instagramUrl || 'https://instagram.com/patasnet.id');
+      setCompanyFacebookUrlInput(companySettings.facebookUrl || 'https://facebook.com/patasnet.id');
+      setCompanyYoutubeUrlInput(companySettings.youtubeUrl || 'https://youtube.com/@patasnet');
+      setCompanyAddressInput(companySettings.address || 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110');
+      setCompanyLogoTextInput(companySettings.logoText || 'PATAS NET');
       setCompanyLogoUrlInput(companySettings.logoUrl || '');
       if (companySettings.promos) {
         setPromosList(companySettings.promos);
       }
     }
   }, [companySettings]);
+
+  // Load sheets config from server if available
+  useEffect(() => {
+    fetch('/api/sheets/config')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.config?.webAppUrl && !googleSheetsUrl) {
+          setGoogleSheetsUrl(data.config.webAppUrl);
+          saveGoogleSheetsWebhookUrl(data.config.webAppUrl);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Image preview lightbox modal state
   const [previewModal, setPreviewModal] = useState<{
@@ -478,6 +516,15 @@ export default function AdminDashboard({
     setSavingSettings(true);
     const success = await onUpdateCompanySettings({
       name: companyNameInput,
+      legalName: companyLegalNameInput,
+      tagline: companyTaglineInput,
+      coverageText: companyCoverageTextInput,
+      whatsappNumber: companyWhatsappNumberInput,
+      phoneNumber: companyPhoneNumberInput,
+      email: companyEmailInput,
+      instagramUrl: companyInstagramUrlInput,
+      facebookUrl: companyFacebookUrlInput,
+      youtubeUrl: companyYoutubeUrlInput,
       address: companyAddressInput,
       logoText: companyLogoTextInput,
       themeColor: '#2563eb',
@@ -485,7 +532,7 @@ export default function AdminDashboard({
     });
     setSavingSettings(false);
     if (success) {
-      showToast('Pengaturan identitas perusahaan berhasil diperbarui!');
+      showToast('Pengaturan seluruh informasi website berhasil disimpan & disinkronkan!');
     } else {
       showToast('Gagal memperbarui pengaturan.', 'error');
     }
@@ -769,142 +816,218 @@ function doPost(e) {
   );
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 flex flex-col lg:flex-row gap-8 text-xs">
-      {/* LEFT SIDEBAR NAVIGATION PANEL */}
-      <aside className="w-full lg:w-64 shrink-0 space-y-6 lg:sticky lg:top-24 h-fit">
-        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 flex flex-col gap-6">
-          <div className="pb-4 border-b border-slate-100 flex justify-center">
-            <Logo companyName={companySettings?.name} />
+    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 flex flex-col lg:flex-row gap-8 text-xs relative">
+      {/* LEFT SIDEBAR NAVIGATION PANEL (Collapses to icon-only rail when hidden) */}
+      <aside className={`shrink-0 transition-all duration-300 lg:sticky lg:top-24 h-fit ${isSidebarOpen ? 'w-full lg:w-72' : 'w-full lg:w-20'}`}>
+        <div className={`bg-white rounded-3xl border border-slate-200/80 shadow-md flex flex-col transition-all duration-300 ${isSidebarOpen ? 'p-5 gap-5' : 'p-3 gap-3 items-center'}`}>
+          <div className={`border-b border-slate-100 flex items-center ${isSidebarOpen ? 'pb-3.5 justify-between w-full gap-2' : 'pb-2.5 justify-center w-full'}`}>
+            {isSidebarOpen ? (
+              <>
+                <div className="min-w-0 flex-1 overflow-hidden pr-1">
+                  <Logo companyName={companySettings?.name} logoUrl={companySettings?.logoUrl} tagline={companySettings?.tagline} />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200/60 hover:border-blue-200 rounded-xl transition shrink-0 shadow-2xs"
+                  title="Sembunyikan Label Menu (Tampilkan Hanya Icon)"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200/60 rounded-xl transition flex flex-col items-center justify-center gap-1.5 group shadow-2xs"
+                title="Buka Menu Navigasi Lengkap"
+              >
+                <Logo iconOnly={true} className="scale-75" companyName={companySettings?.name} logoUrl={companySettings?.logoUrl} />
+                <PanelLeftOpen className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition" />
+              </button>
+            )}
           </div>
 
-          <div className="space-y-1">
-            <p className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider px-3 mb-2">Menu Navigasi</p>
-            <nav className="flex flex-col gap-1.5">
+          <div className={`w-full ${isSidebarOpen ? 'space-y-1' : 'space-y-1.5'}`}>
+            {isSidebarOpen && (
+              <p className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider px-3 mb-2">Menu Navigasi</p>
+            )}
+            <nav className={`flex ${isSidebarOpen ? 'flex-col gap-1.5' : 'flex-row flex-wrap lg:flex-col gap-2 items-center justify-center'}`}>
               <button
                 type="button"
                 onClick={() => setActiveTab('overview')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                title="Analisis & Grafik"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'overview'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
                     : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
                 }`}
               >
-                <TrendingUp className="w-4 h-4" />
-                <span>Analisis & Grafik</span>
+                <TrendingUp className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Analisis & Grafik</span>}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('customers')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                title="Kelola Pelanggan"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'customers'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
                     : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
                 }`}
               >
-                <Users className="w-4 h-4" />
-                <span>Kelola Pelanggan</span>
+                <Users className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Kelola Pelanggan</span>}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('payments')}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                title="Verifikasi Bayar"
+                className={`rounded-xl font-bold transition-all relative ${
+                  isSidebarOpen
+                    ? 'flex items-center justify-between px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'payments'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
                     : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <CreditCard className="w-4 h-4" />
-                  <span>Verifikasi Bayar</span>
+                  <CreditCard className="w-4 h-4 shrink-0" />
+                  {isSidebarOpen && <span>Verifikasi Bayar</span>}
                 </div>
                 {pendingPaymentsList.length > 0 && (
-                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold ${
-                    activeTab === 'payments' ? 'bg-white text-blue-600' : 'bg-amber-500 text-white animate-pulse'
-                  }`}>
-                    {pendingPaymentsList.length} Baru
-                  </span>
+                  isSidebarOpen ? (
+                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold ${
+                      activeTab === 'payments' ? 'bg-white text-blue-600' : 'bg-amber-500 text-white animate-pulse'
+                    }`}>
+                      {pendingPaymentsList.length} Baru
+                    </span>
+                  ) : (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white animate-pulse" />
+                  )
                 )}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('tickets')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left justify-between ${
+                title="Tiket Gangguan"
+                className={`rounded-xl font-bold transition-all relative ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left justify-between w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'tickets'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
                     : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>Tiket Gangguan</span>
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  {isSidebarOpen && <span>Tiket Gangguan</span>}
                 </div>
                 {supportTickets.filter((t) => t.status === 'open').length > 0 && (
-                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold ${
-                    activeTab === 'tickets' ? 'bg-white text-blue-600' : 'bg-red-100 text-red-600'
-                  }`}>
-                    {supportTickets.filter((t) => t.status === 'open').length}
-                  </span>
+                  isSidebarOpen ? (
+                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold ${
+                      activeTab === 'tickets' ? 'bg-white text-blue-600' : 'bg-red-100 text-red-600'
+                    }`}>
+                      {supportTickets.filter((t) => t.status === 'open').length}
+                    </span>
+                  ) : (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white" />
+                  )
                 )}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('packages')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                title="Kelola Paket WiFi"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'packages'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
                     : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
                 }`}
               >
-                <Wifi className="w-4 h-4" />
-                <span>Kelola Paket WiFi</span>
+                <Wifi className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Kelola Paket WiFi</span>}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('company_settings')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                title="Pengaturan & Promo"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'company_settings'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
                     : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
                 }`}
               >
-                <Settings className="w-4 h-4" />
-                <span>Pengaturan & Promo</span>
+                <Settings className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Pengaturan & Promo</span>}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('coverage')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                title="Kelola Area Cakupan"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'coverage'
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
                     : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
                 }`}
               >
-                <MapPin className="w-4 h-4" />
-                <span>Kelola Area Cakupan</span>
+                <MapPin className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Kelola Area Cakupan</span>}
               </button>
 
               <button
                 type="button"
                 onClick={() => setActiveTab('sheets')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                title="Google Sheets & Drive Database"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
                   activeTab === 'sheets'
                     ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/15'
                     : 'text-slate-600 hover:text-emerald-600 hover:bg-emerald-50/50'
                 }`}
               >
-                <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-                <div className="flex items-center justify-between w-full">
-                  <span>Google Sheets & Drive</span>
-                  <span className="text-[8px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded">
-                    Database
-                  </span>
-                </div>
+                <FileSpreadsheet className="w-4 h-4 text-emerald-500 shrink-0" />
+                {isSidebarOpen && (
+                  <div className="flex items-center justify-between w-full">
+                    <span>Google Sheets & Drive</span>
+                    <span className="text-[8px] bg-emerald-100 text-emerald-800 font-extrabold px-1.5 py-0.5 rounded">
+                      Database
+                    </span>
+                  </div>
+                )}
               </button>
             </nav>
           </div>
@@ -1107,7 +1230,16 @@ function doPost(e) {
             </h1>
             <p className="text-[11px] text-slate-400">Kelola pelanggan, kirim pengingat tagihan WhatsApp, pantau grafik harian, & unduh laporan Excel.</p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2.5 sm:px-3 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition flex items-center gap-1.5 font-bold"
+              title={isSidebarOpen ? "Sembunyikan Menu Navigasi" : "Buka Menu Navigasi"}
+            >
+              {isSidebarOpen ? <PanelLeftClose className="w-4 h-4 text-blue-400" /> : <PanelLeftOpen className="w-4 h-4 text-emerald-400" />}
+              <span className="hidden sm:inline">{isSidebarOpen ? 'Sembunyikan Menu' : 'Buka Menu'}</span>
+            </button>
             <button
               onClick={onRefreshData}
               className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-all border border-slate-700"
@@ -1119,7 +1251,7 @@ function doPost(e) {
               onClick={handleExportToExcel}
               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all shadow-md flex items-center gap-1.5"
             >
-              <Download className="w-4 h-4" /> Ekspor Transaksi Excel
+              <Download className="w-4 h-4" /> <span className="hidden sm:inline">Ekspor Transaksi Excel</span><span className="sm:hidden">Excel</span>
             </button>
           </div>
         </div>
@@ -1982,66 +2114,268 @@ function doPost(e) {
               </div>
             </div>
 
-            {/* Company Identity Form */}
-            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-6">
-              <div>
-                <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100 flex items-center gap-2">
-                  <Settings className="w-5 h-5 text-blue-600" /> Pengaturan Identitas Perusahaan & WiFi
-                </h3>
-                <p className="text-slate-500 leading-relaxed mt-2 text-xs">
-                  Ubah nama perusahaan WiFi, alamat, serta identitas visual logo Anda di sini. Perubahan ini akan langsung diperbarui ke seluruh halaman web portal pelanggan, kuitansi PDF, dan notifikasi pesan otomatis.
-                </p>
+            {/* Company Identity & Global Website CMS Form */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 sm:p-8 space-y-6">
+              <div className="pb-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-blue-600" /> Pengaturan Seluruh Informasi & Branding Website
+                  </h3>
+                  <p className="text-slate-500 leading-relaxed mt-1 text-xs">
+                    Kelola nama PT / badan usaha legal, nama brand WiFi, slogan/tagline, teks area cakupan di header, kontak resmi, media sosial, serta upload logo global yang otomatis terganti di seluruh website.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveCompanySettings}
+                  disabled={savingSettings}
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition shadow-md flex items-center gap-2 text-xs shrink-0 self-start sm:self-auto"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{savingSettings ? 'Menyimpan...' : 'Simpan Semua'}</span>
+                </button>
               </div>
 
-              <form onSubmit={handleSaveCompanySettings} className="space-y-4 max-w-xl">
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Nama Perusahaan WiFi</label>
-                  <input
-                    type="text"
-                    value={companyNameInput}
-                    onChange={(e) => setCompanyNameInput(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
-                    placeholder="Contoh: Patas Net WiFi"
-                    required
-                  />
+              <form onSubmit={handleSaveCompanySettings} className="space-y-6">
+                {/* Bagian 1: Identitas & Legalitas */}
+                <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200/60 space-y-4">
+                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-blue-600" /> 1. Identitas & Legalitas Perusahaan
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Nama Legal Perusahaan (PT / CV) *
+                      </label>
+                      <input
+                        type="text"
+                        value={companyLegalNameInput}
+                        onChange={(e) => setCompanyLegalNameInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="Contoh: PT. AMANUSA TELEMEDIA"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400">Tampil di footer, kuitansi resmi, syarat & ketentuan, dan WhatsApp CS.</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Nama Brand / Merk Dagang Layanan WiFi *
+                      </label>
+                      <input
+                        type="text"
+                        value={companyNameInput}
+                        onChange={(e) => setCompanyNameInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="Contoh: Patas Net WiFi"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400">Nama utama produk dan portal layanan pelanggan.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Tagline / Slogan Website (Hero Section) *
+                      </label>
+                      <input
+                        type="text"
+                        value={companyTaglineInput}
+                        onChange={(e) => setCompanyTaglineInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="Contoh: Internet Fiber Optic Cepat, Stabil & Tanpa Batas Kuota"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400">Tampil sebagai deskripsi utama di bagian pembuka (Hero) website.</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Teks Logo Visual (Maksimal 2 Kata) *
+                      </label>
+                      <input
+                        type="text"
+                        value={companyLogoTextInput}
+                        onChange={(e) => setCompanyLogoTextInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="Contoh: PATAS NET"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400">Kata kedua otomatis diberi aksen warna biru profesional.</p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Teks Logo Identitas Visual (Maksimal 2 Kata)</label>
-                  <input
-                    type="text"
-                    value={companyLogoTextInput}
-                    onChange={(e) => setCompanyLogoTextInput(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
-                    placeholder="Contoh: PATAS NET"
-                    required
-                  />
-                  <p className="text-[10px] text-slate-400">Kata kedua dalam logo otomatis dihiasi dengan warna biru profesional.</p>
+                {/* Bagian 2: Teks Area Cakupan Header */}
+                <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200/60 space-y-3">
+                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-emerald-600" /> 2. Teks Ringkasan Area Cakupan (Header Top Bar)
+                  </h4>
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                      Teks Area Cakupan Yang Ditampilkan Di Atas Header *
+                    </label>
+                    <input
+                      type="text"
+                      value={companyCoverageTextInput}
+                      onChange={(e) => setCompanyCoverageTextInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold font-mono"
+                      placeholder="Contoh: 9 Kota/Kabupaten, 81 Kecamatan, 123 Kelurahan"
+                      required
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      Teks ini persis yang tampil pada baris biru paling atas (Top Bar) website: <strong>AREA CAKUPAN: {companyCoverageTextInput}</strong>
+                    </p>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Alamat Perusahaan / Kantor WiFi</label>
-                  <textarea
-                    rows={3}
-                    value={companyAddressInput}
-                    onChange={(e) => setCompanyAddressInput(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-slate-50/50 text-xs"
-                    placeholder="Alamat lengkap kantor pusat..."
-                    required
-                  />
+                {/* Bagian 3: Kontak & Layanan Pelanggan */}
+                <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200/60 space-y-4">
+                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <PhoneCall className="w-4 h-4 text-amber-600" /> 3. Layanan Konsumen & Kontak Resmi
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Nomor WhatsApp CS (24 Jam) *
+                      </label>
+                      <input
+                        type="text"
+                        value={companyWhatsappNumberInput}
+                        onChange={(e) => setCompanyWhatsappNumberInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="0812-3456-7890"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400">Untuk tombol WhatsApp melayang & notifikasi.</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Nomor Telepon / Call Center *
+                      </label>
+                      <input
+                        type="text"
+                        value={companyPhoneNumberInput}
+                        onChange={(e) => setCompanyPhoneNumberInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="+62 899-3299-977"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400">Tampil di header atas & footer.</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Alamat Email CS *
+                      </label>
+                      <input
+                        type="email"
+                        value={companyEmailInput}
+                        onChange={(e) => setCompanyEmailInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="cs@patasnet.id"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400">Email resmi korespondensi pelanggan.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                      Alamat Kantor & Operation Center *
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={companyAddressInput}
+                      onChange={(e) => setCompanyAddressInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                      placeholder="Alamat lengkap kantor pusat & operation center..."
+                      required
+                    />
+                    <p className="text-[10px] text-slate-400">Tampil di footer, kuitansi cetak, dan kontak kami.</p>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="block font-bold text-slate-700 uppercase text-[10px]">Upload Logo Perusahaan</label>
-                  <div className="flex items-center gap-4 p-4 border border-slate-200 rounded-xl bg-slate-50/50">
+                {/* Bagian 4: Media Sosial */}
+                <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200/60 space-y-4">
+                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <Share2 className="w-4 h-4 text-purple-600" /> 4. Akun Media Sosial Resmi
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Link Akun Instagram
+                      </label>
+                      <input
+                        type="text"
+                        value={companyInstagramUrlInput}
+                        onChange={(e) => setCompanyInstagramUrlInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="https://instagram.com/patasnet.id"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Link Akun Facebook
+                      </label>
+                      <input
+                        type="text"
+                        value={companyFacebookUrlInput}
+                        onChange={(e) => setCompanyFacebookUrlInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="https://facebook.com/patasnet.id"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                        Link Channel YouTube
+                      </label>
+                      <input
+                        type="text"
+                        value={companyYoutubeUrlInput}
+                        onChange={(e) => setCompanyYoutubeUrlInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 bg-white text-xs font-semibold"
+                        placeholder="https://youtube.com/@patasnet"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bagian 5: Upload Logo Global */}
+                <div className="bg-slate-50/70 p-5 rounded-2xl border border-slate-200/60 space-y-4">
+                  <h4 className="font-black text-xs text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <ImageIcon className="w-4 h-4 text-pink-600" /> 5. Upload & Ganti Logo Global (Terganti di Seluruh Halaman)
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Setiap logo diganti di sini, seluruh logo di Home, Navbar, Footer, Dashboard Admin, Developer, dan Pelanggan otomatis akan terganti secara instan oleh gambar logo yang Anda unggah.
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-center gap-4 p-4 border border-slate-200 rounded-2xl bg-white shadow-xs">
                     {companyLogoUrlInput ? (
-                      <img src={companyLogoUrlInput} alt="Logo Preview" className="h-12 w-12 object-contain rounded border bg-white p-1" />
+                      <div className="relative group">
+                        <img
+                          src={companyLogoUrlInput}
+                          alt="Logo Preview"
+                          className="h-16 w-16 object-contain rounded-xl border border-slate-200 bg-slate-50 p-1.5"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setCompanyLogoUrlInput('')}
+                          className="absolute -top-2 -right-2 p-1 bg-red-600 hover:bg-red-700 text-white rounded-full shadow transition"
+                          title="Hapus Logo"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     ) : (
-                      <div className="h-12 w-12 rounded border bg-white flex items-center justify-center text-slate-300 text-xs font-bold font-sans">
-                        LOGO
+                      <div className="h-16 w-16 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center text-slate-400 text-[10px] font-black uppercase">
+                        Default
                       </div>
                     )}
-                    <div className="flex-1">
+                    <div className="flex-1 w-full space-y-1">
                       <input
                         type="file"
                         accept="image/*"
@@ -2055,29 +2389,35 @@ function doPost(e) {
                             reader.readAsDataURL(file);
                           }
                         }}
-                        className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                        className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer w-full"
                       />
-                      <p className="text-[9px] text-slate-400 mt-1">Gunakan format PNG/JPG dengan resolusi persegi/lanskap.</p>
+                      <p className="text-[10px] text-slate-400">
+                        Format disarankan: PNG transparan atau JPG persegi (resolusi 256x256 atau 512x512).
+                      </p>
                     </div>
                     {companyLogoUrlInput && (
                       <button
                         type="button"
                         onClick={() => setCompanyLogoUrlInput('')}
-                        className="px-2.5 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition"
+                        className="px-3 py-1.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition"
                       >
-                        Hapus
+                        Reset Logo
                       </button>
                     )}
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={savingSettings}
-                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-md flex items-center gap-2 text-xs"
-                >
-                  {savingSettings ? 'Menyimpan...' : 'Simpan Perubahan'}
-                </button>
+                {/* Submit button */}
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingSettings}
+                    className="w-full sm:w-auto px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2 text-xs"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{savingSettings ? 'Menyimpan Perubahan...' : 'Simpan Seluruh Informasi Website'}</span>
+                  </button>
+                </div>
               </form>
             </div>
           </div>
@@ -2322,7 +2662,12 @@ function doPost(e) {
                       type="button"
                       onClick={() => {
                         saveGoogleSheetsWebhookUrl(googleSheetsUrl);
-                        showToast('URL Google Sheets berhasil disimpan!', 'success');
+                        fetch('/api/sheets/config', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ webAppUrl: googleSheetsUrl }),
+                        }).catch(() => {});
+                        showToast('URL Google Sheets & Drive berhasil disimpan dan disinkronkan ke server!', 'success');
                       }}
                       className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold text-xs transition"
                     >

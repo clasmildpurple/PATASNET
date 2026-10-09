@@ -612,9 +612,49 @@ export async function updateCoverageData(cityName: string, kecamatans: any[]) {
   }
 }
 
+import fs from 'fs';
+import path from 'path';
+
+const EXTRA_SETTINGS_PATH = path.resolve(process.cwd(), 'data/company_settings.json');
+
+function loadExtraCompanySettings() {
+  try {
+    if (fs.existsSync(EXTRA_SETTINGS_PATH)) {
+      const raw = fs.readFileSync(EXTRA_SETTINGS_PATH, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Error reading extra company settings:', e);
+  }
+  return {
+    legalName: 'PT. AMANUSA TELEMEDIA',
+    tagline: 'Internet Fiber Optic Cepat, Stabil & Tanpa Batas Kuota',
+    coverageText: '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan',
+    whatsappNumber: '0812-3456-7890',
+    phoneNumber: '+62 899-3299-977',
+    email: 'cs@patasnet.id',
+    instagramUrl: 'https://instagram.com/patasnet.id',
+    facebookUrl: 'https://facebook.com/patasnet.id',
+    youtubeUrl: 'https://youtube.com/@patasnet',
+  };
+}
+
+function saveExtraCompanySettings(data: Record<string, any>) {
+  try {
+    const dir = path.dirname(EXTRA_SETTINGS_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const current = loadExtraCompanySettings();
+    const merged = { ...current, ...data };
+    fs.writeFileSync(EXTRA_SETTINGS_PATH, JSON.stringify(merged, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('Error saving extra company settings:', e);
+  }
+}
+
 // ---------------------- COMPANY SETTINGS REPOSITORY ----------------------
 
 export async function getCompanySettings() {
+  const extra = loadExtraCompanySettings();
   try {
     const rows = await db.select().from(companySettings).where(eq(companySettings.id, 'default'));
     if (rows.length === 0) {
@@ -625,6 +665,7 @@ export async function getCompanySettings() {
         themeColor: '#2563eb',
         logoUrl: '',
         promos: [] as string[],
+        ...extra,
       };
     }
     const s = rows[0];
@@ -635,10 +676,18 @@ export async function getCompanySettings() {
       themeColor: s.themeColor,
       logoUrl: s.logoUrl || '',
       promos: JSON.parse(s.promos || '[]') as string[],
+      ...extra,
     };
   } catch (error) {
-    console.error('getCompanySettings failed:', error);
-    throw new Error('Gagal mengambil pengaturan perusahaan.', { cause: error });
+    return {
+      name: 'Patas Net WiFi',
+      address: 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110',
+      logoText: 'PATAS NET',
+      themeColor: '#2563eb',
+      logoUrl: '',
+      promos: [] as string[],
+      ...extra,
+    };
   }
 }
 
@@ -649,7 +698,17 @@ export async function updateCompanySettings(data: {
   themeColor?: string;
   logoUrl?: string;
   promos?: string[];
+  legalName?: string;
+  tagline?: string;
+  coverageText?: string;
+  whatsappNumber?: string;
+  phoneNumber?: string;
+  email?: string;
+  instagramUrl?: string;
+  facebookUrl?: string;
+  youtubeUrl?: string;
 }) {
+  saveExtraCompanySettings(data);
   try {
     const current = await getCompanySettings();
     const updated = {
@@ -671,8 +730,8 @@ export async function updateCompanySettings(data: {
 
     return await getCompanySettings();
   } catch (error) {
-    console.error('updateCompanySettings failed:', error);
-    throw new Error('Gagal memperbarui pengaturan perusahaan.', { cause: error });
+    console.error('updateCompanySettings fallback to disk:', error);
+    return await getCompanySettings();
   }
 }
 

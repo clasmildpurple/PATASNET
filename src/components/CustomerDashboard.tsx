@@ -20,7 +20,9 @@ import {
   Phone,
   Mail,
   Clock,
-  Eye
+  Eye,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react';
 import { CustomerUser, PaymentRecord } from '../types';
 import { PACKAGES } from './Home';
@@ -28,21 +30,25 @@ import { jsPDF } from 'jspdf';
 import { generateCustomerPDFReport } from '../lib/pdfGenerator';
 import ImagePreviewModal from './ImagePreviewModal';
 import { submitLocalPaymentProof } from '../lib/clientFallback';
+import Logo from './Logo';
 
 interface CustomerDashboardProps {
   user: CustomerUser;
   onRefreshUser: () => void;
   onLogout: () => void;
   companyName?: string;
+  logoUrl?: string;
 }
 
 export default function CustomerDashboard({
   user,
   onRefreshUser,
   onLogout,
-  companyName
+  companyName,
+  logoUrl
 }: CustomerDashboardProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'pay' | 'tickets' | 'profile'>('home');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [ticketMessage, setTicketMessage] = useState('');
   const [submittingTicket, setSubmittingTicket] = useState(false);
   const [ticketSuccess, setTicketSuccess] = useState(false);
@@ -255,14 +261,19 @@ export default function CustomerDashboard({
       <div className="bg-gradient-to-r from-blue-900 to-indigo-950 p-6 sm:p-8 rounded-3xl text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-blue-500/10 rounded-full blur-2xl" />
 
-        <div className="space-y-1.5">
-          <span className="px-3 py-1 bg-yellow-400 text-slate-950 font-extrabold text-[9px] rounded-full uppercase tracking-wider inline-block">
-            PORTAL PELANGGAN {(companyName || 'PATAS NET').toUpperCase()}
-          </span>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Selamat Datang, {user.name}!</h1>
-          <p className="text-xs text-blue-200">
-            ID Pelanggan: <strong className="font-mono text-yellow-300">{user.id}</strong> | Paket: {userPkg.name} ({userPkg.speed})
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="p-2 bg-white/10 rounded-2xl border border-white/15 shrink-0 shadow-inner">
+            <Logo iconOnly={true} companyName={companyName} logoUrl={logoUrl} className="scale-110" />
+          </div>
+          <div className="space-y-1">
+            <span className="px-3 py-0.5 bg-yellow-400 text-slate-950 font-extrabold text-[9px] rounded-full uppercase tracking-wider inline-block">
+              PORTAL PELANGGAN {(companyName || 'PATAS NET').toUpperCase()}
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Selamat Datang, {user.name}!</h1>
+            <p className="text-xs text-blue-200">
+              ID Pelanggan: <strong className="font-mono text-yellow-300">{user.id}</strong> | Paket: {userPkg.name} ({userPkg.speed})
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto md:items-center">
@@ -284,6 +295,16 @@ export default function CustomerDashboard({
           </div>
 
           <button
+            type="button"
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="flex items-center justify-center gap-1.5 px-3 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl transition border border-white/10 text-xs shrink-0"
+            title={isSidebarOpen ? "Sembunyikan Menu" : "Buka Menu"}
+          >
+            {isSidebarOpen ? <PanelLeftClose className="w-4 h-4 text-yellow-300" /> : <PanelLeftOpen className="w-4 h-4 text-emerald-300" />}
+            <span className="hidden sm:inline">{isSidebarOpen ? "Sembunyikan Menu" : "Buka Menu"}</span>
+          </button>
+
+          <button
             onClick={onLogout}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-white/10 hover:bg-red-600 text-white font-bold rounded-2xl transition border border-white/10 text-xs shrink-0"
             title="Keluar dari Akun"
@@ -294,65 +315,125 @@ export default function CustomerDashboard({
         </div>
       </div>
 
-      {/* DESKTOP NAVIGATION TABS */}
-      <div className="hidden md:flex items-center gap-2 p-1.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm w-fit">
-        <button
-          type="button"
-          onClick={() => setActiveTab('home')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'home'
-              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-              : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-          }`}
-        >
-          <Home className="w-4 h-4" />
-          <span>Beranda</span>
-        </button>
+      {/* Main Layout Container with Left Sidebar */}
+      <div className="flex flex-col lg:flex-row gap-6 relative">
+        {/* Left Sidebar Menu (Collapses to icon-only rail when hidden) */}
+        <aside className={`shrink-0 transition-all duration-300 lg:sticky lg:top-20 h-fit ${isSidebarOpen ? 'w-full lg:w-64' : 'w-full lg:w-20'}`}>
+          <div className={`bg-white rounded-3xl border border-slate-200/80 shadow-md flex flex-col transition-all duration-300 ${isSidebarOpen ? 'p-5 gap-4' : 'p-3 gap-3 items-center'}`}>
+            <div className={`flex items-center ${isSidebarOpen ? 'justify-between pb-3.5 border-b border-slate-100 w-full gap-2' : 'justify-center pb-2.5 border-b border-slate-100 w-full'}`}>
+              {isSidebarOpen ? (
+                <>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold">MENU PELANGGAN</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsSidebarOpen(false)}
+                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 border border-slate-200/60 hover:border-blue-200 rounded-xl transition shadow-2xs"
+                    title="Sembunyikan Label Menu (Tampilkan Hanya Icon)"
+                  >
+                    <PanelLeftClose className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200/60 rounded-xl transition flex flex-col items-center justify-center gap-1 group shadow-2xs"
+                  title="Buka Menu Pelanggan Lengkap"
+                >
+                  <PanelLeftOpen className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition" />
+                </button>
+              )}
+            </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('pay')}
-          className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'pay'
-              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-              : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-          }`}
-        >
-          <CreditCard className="w-4 h-4" />
-          <span>Menu Bayar</span>
-          {unpaidBills.length > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-red-500 text-white">
-              {unpaidBills.length}
-            </span>
-          )}
-        </button>
+            <nav className={`flex ${isSidebarOpen ? 'flex-col gap-1.5 text-xs w-full' : 'flex-row flex-wrap lg:flex-col gap-2 items-center justify-center w-full'}`}>
+              <button
+                type="button"
+                onClick={() => setActiveTab('home')}
+                title="Beranda"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'w-full text-left flex items-center gap-2.5 px-3.5 py-2.5'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
+                  activeTab === 'home'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+                }`}
+              >
+                <Home className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Beranda</span>}
+              </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('tickets')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'tickets'
-              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-              : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-          }`}
-        >
-          <AlertCircle className="w-4 h-4" />
-          <span>Lapor Gangguan</span>
-        </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('pay')}
+                title="Menu Bayar Tagihan"
+                className={`rounded-xl font-bold transition-all relative ${
+                  isSidebarOpen
+                    ? 'w-full text-left flex items-center justify-between px-3.5 py-2.5'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
+                  activeTab === 'pay'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <CreditCard className="w-4 h-4 shrink-0" />
+                  {isSidebarOpen && <span>Menu Bayar</span>}
+                </div>
+                {unpaidBills.length > 0 && (
+                  isSidebarOpen ? (
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-red-500 text-white">
+                      {unpaidBills.length}
+                    </span>
+                  ) : (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white animate-pulse" />
+                  )
+                )}
+              </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('profile')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'profile'
-              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-              : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-          }`}
-        >
-          <User className="w-4 h-4" />
-          <span>Profil Akun</span>
-        </button>
-      </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('tickets')}
+                title="Lapor Gangguan / Tiket CS"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'w-full text-left flex items-center gap-2.5 px-3.5 py-2.5'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
+                  activeTab === 'tickets'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+                }`}
+              >
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Lapor Gangguan</span>}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('profile')}
+                title="Profil Akun & Paket"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'w-full text-left flex items-center gap-2.5 px-3.5 py-2.5'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
+                  activeTab === 'profile'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+                }`}
+              >
+                <User className="w-4 h-4 shrink-0" />
+                {isSidebarOpen && <span>Profil Akun</span>}
+              </button>
+            </nav>
+          </div>
+        </aside>
+
+        {/* Right Main Panel */}
+        <div className="flex-1 min-w-0 space-y-6">
 
       {/* ========================================================================= */}
       {/* TAB 1: BERANDA (OVERVIEW) */}
@@ -911,6 +992,9 @@ export default function CustomerDashboard({
           </div>
         </div>
       )}
+
+      </div>
+    </div>
 
       {/* ========================================================================= */}
       {/* MOBILE BOTTOM NAVIGATION BAR (APP-LIKE MOBILE EXPERIENCE) */}
