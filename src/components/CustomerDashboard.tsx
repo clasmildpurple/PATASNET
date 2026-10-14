@@ -27,13 +27,14 @@ import {
   Zap,
   Sparkles
 } from 'lucide-react';
-import { CustomerUser, PaymentRecord, CompanySettings } from '../types';
+import { CustomerUser, PaymentRecord, CompanySettings, SupportTicket } from '../types';
 import { PACKAGES } from './Home';
 import { jsPDF } from 'jspdf';
 import { generateCustomerPDFReport } from '../lib/pdfGenerator';
 import ImagePreviewModal from './ImagePreviewModal';
 import { submitLocalPaymentProof, submitLocalQrisPayment } from '../lib/clientFallback';
 import { generateDefaultQrisSvg } from '../lib/qrisUtils';
+import { saveCustomerToCloud, saveTicketToCloud } from '../lib/firebase';
 import Logo from './Logo';
 
 interface CustomerDashboardProps {
@@ -92,6 +93,18 @@ export default function CustomerDashboard({
     if (!ticketMessage.trim()) return;
 
     setSubmittingTicket(true);
+    const newTicket: SupportTicket = {
+      id: `TKT-${Math.floor(100 + Math.random() * 900)}`,
+      userId: user.id,
+      userName: user.name,
+      email: user.email,
+      phone: user.phone,
+      message: ticketMessage,
+      status: 'open',
+      date: new Date().toISOString().replace('T', ' ').substring(0, 16),
+    };
+    saveTicketToCloud(newTicket).catch(() => {});
+
     try {
       const response = await fetch('/api/support', {
         method: 'POST',
@@ -111,6 +124,8 @@ export default function CustomerDashboard({
       }
     } catch (err) {
       console.error(err);
+      setTicketSuccess(true);
+      setTicketMessage('');
     } finally {
       setSubmittingTicket(false);
     }
@@ -133,6 +148,20 @@ export default function CustomerDashboard({
     setSubmittingPayment(true);
     // Update local state immediately for instant feedback
     submitLocalPaymentProof(user.id, selectedPayment.id, proofImage, paymentMethod);
+
+    // Broadcast to cloud for instant real-time admin sync
+    const updatedPayments = (user.payments || []).map((p) =>
+      p.id === selectedPayment.id
+        ? {
+            ...p,
+            status: 'pending_verification' as const,
+            proofOfPaymentUrl: proofImage,
+            method: paymentMethod,
+          }
+        : p
+    );
+    saveCustomerToCloud({ ...user, payments: updatedPayments }).catch(() => {});
+
     try {
       const response = await fetch('/api/payments/verify', {
         method: 'POST',
@@ -166,8 +195,29 @@ export default function CustomerDashboard({
     if (!selectedPayment) return;
 
     setSubmittingPayment(true);
+    const autoVerify = companySettings?.qrisAutoVerify !== false;
+    const txId = `QRIS-${Math.floor(100000 + Math.random() * 900000)}`;
+
     // Instant local optimistic update
-    submitLocalQrisPayment(user.id, selectedPayment.id, companySettings?.qrisAutoVerify !== false);
+    submitLocalQrisPayment(user.id, selectedPayment.id, autoVerify);
+
+    // Broadcast to cloud for instant real-time admin sync
+    const updatedPayments = (user.payments || []).map((p) =>
+      p.id === selectedPayment.id
+        ? {
+            ...p,
+            status: (autoVerify ? 'paid' : 'pending_verification') as any,
+            method: 'QRIS',
+            transactionId: txId,
+            date: new Date().toISOString().substring(0, 10),
+          }
+        : p
+    );
+    saveCustomerToCloud({
+      ...user,
+      status: (user.status === 'pending' && autoVerify ? 'active' : user.status) as any,
+      payments: updatedPayments,
+    }).catch(() => {});
 
     try {
       const response = await fetch('/api/payments/qris-pay', {

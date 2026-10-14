@@ -170,11 +170,11 @@ export function saveLocalSettings(settings: Partial<typeof DEFAULT_COMPANY_SETTI
   try {
     const current = getLocalSettings();
     const cleaned = { ...settings };
-    // Never overwrite an existing valid image (logoUrl / qrisUrl) with empty string or undefined
-    if (!cleaned.logoUrl && current.logoUrl) {
+    // Only preserve current if undefined
+    if (cleaned.logoUrl === undefined && current.logoUrl) {
       cleaned.logoUrl = current.logoUrl;
     }
-    if (!cleaned.qrisUrl && current.qrisUrl) {
+    if (cleaned.qrisUrl === undefined && current.qrisUrl) {
       cleaned.qrisUrl = current.qrisUrl;
     }
     const updated = { ...current, ...cleaned };

@@ -215,6 +215,7 @@ export function getGoogleSheetsDatabase(): GoogleSheetsDatabase {
       Pengaturan: [
         ['name', 'PATAS NET', new Date().toISOString()],
         ['logoText', 'PATAS NET', new Date().toISOString()],
+        ['logoUrl', '', new Date().toISOString()],
         ['tagline', 'Internet Cepat Harga Merakyat', new Date().toISOString()],
         ['coverageText', '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan', new Date().toISOString()],
         ['legalName', 'PT. AMANUSA TELEMEDIA', new Date().toISOString()],
@@ -222,6 +223,7 @@ export function getGoogleSheetsDatabase(): GoogleSheetsDatabase {
         ['phoneNumber', '+62 899-3299-977', new Date().toISOString()],
         ['themeColor', '#2563eb', new Date().toISOString()],
         ['address', 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110', new Date().toISOString()],
+        ['qrisUrl', '', new Date().toISOString()],
       ],
     },
     headers: DEFAULT_SHEET_HEADERS,
@@ -520,9 +522,19 @@ export async function fetchFromGoogleSheetsServer(): Promise<any> {
     createdAt: row[0],
   }));
 
-  const settingsObj: Record<string, string> = {};
+  let diskCompanySettings: any = {};
+  try {
+    const csPath = path.resolve(process.cwd(), 'data/company_settings.json');
+    if (fs.existsSync(csPath)) {
+      diskCompanySettings = JSON.parse(fs.readFileSync(csPath, 'utf-8'));
+    }
+  } catch {}
+
+  const settingsObj: Record<string, any> = { ...diskCompanySettings };
   db.sheets.Pengaturan.forEach((row) => {
-    settingsObj[row[0]] = row[1];
+    if (row[1] !== undefined && row[1] !== null && String(row[1]).trim() !== '') {
+      settingsObj[row[0]] = row[1];
+    }
   });
 
   return {

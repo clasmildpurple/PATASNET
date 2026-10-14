@@ -516,6 +516,47 @@ app.post('/api/customers/delete', async (req, res) => {
   }
 });
 
+// ---------------------- REAL-TIME CROSS-DEVICE SYNC (SSE) ----------------------
+const sseSyncClients = new Set<any>();
+
+export function broadcastServerSync(event: { type: string; [key: string]: any }) {
+  const payload = `data: ${JSON.stringify(event)}\n\n`;
+  for (const client of sseSyncClients) {
+    try {
+      client.write(payload);
+    } catch {
+      sseSyncClients.delete(client);
+    }
+  }
+}
+
+app.get('/api/sync/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // Send immediate welcome connection message
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
+
+  sseSyncClients.add(res);
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch {
+      clearInterval(heartbeat);
+      sseSyncClients.delete(res);
+    }
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseSyncClients.delete(res);
+  });
+});
+
 // Get company settings API
 app.get('/api/settings/company', async (req, res) => {
   try {
@@ -585,6 +626,9 @@ app.post('/api/settings/company', async (req, res) => {
       `[Pengaturan] Informasi & Branding website diperbarui: ${settings.name} | PT: ${settings.legalName || 'PT. AMANUSA TELEMEDIA'}`
     );
 
+    // Broadcast in real-time to all other devices & browsers
+    broadcastServerSync({ type: 'SETTINGS_UPDATED', settings });
+
     return res.json({ status: 'success', settings });
   } catch (err: any) {
     console.error('Update company settings error:', err);
@@ -633,6 +677,9 @@ app.post('/api/settings/qris', async (req, res) => {
       'SISTEM',
       `[Pengaturan QRIS] Barcode QRIS & Mode Pembayaran Instan diperbarui untuk merchant: ${settings.qrisMerchantName || settings.name}`
     );
+
+    // Broadcast in real-time to all other devices & browsers
+    broadcastServerSync({ type: 'SETTINGS_UPDATED', settings });
 
     return res.json({ status: 'success', settings });
   } catch (err: any) {

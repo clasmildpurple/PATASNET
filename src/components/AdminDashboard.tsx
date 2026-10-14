@@ -653,8 +653,15 @@ export default function AdminDashboard({
         console.warn('Upload API fallback to dataUrl:', uErr);
       }
 
-      showToast('Gambar barcode QRIS berhasil diunggah! Klik "Simpan Pengaturan QRIS" untuk mengaktifkannya.');
+      showToast('Gambar barcode QRIS berhasil diunggah dan disinkronkan ke semua perangkat!');
       setUploadingQris(false);
+
+      if (onUpdateCompanySettings) {
+        onUpdateCompanySettings({
+          name: companyNameInput,
+          qrisUrl: base64,
+        });
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -665,6 +672,7 @@ export default function AdminDashboard({
       const base64 = reader.result as string;
       setCompanyLogoUrlInput(base64);
 
+      let finalLogoUrl = base64;
       try {
         const uRes = await fetch('/api/upload', {
           method: 'POST',
@@ -678,6 +686,7 @@ export default function AdminDashboard({
         if (uRes.ok) {
           const uJson = await uRes.json();
           if (uJson.url) {
+            finalLogoUrl = uJson.url;
             setCompanyLogoUrlInput(uJson.url);
           }
         }
@@ -685,7 +694,14 @@ export default function AdminDashboard({
         console.warn('Logo upload fallback to dataUrl:', uErr);
       }
 
-      showToast('Logo berhasil diunggah! Klik "Simpan Semua" untuk menerapkannya.');
+      showToast('Logo berhasil diunggah dan disinkronkan ke semua browser & perangkat!');
+
+      if (onUpdateCompanySettings) {
+        onUpdateCompanySettings({
+          name: companyNameInput,
+          logoUrl: finalLogoUrl,
+        });
+      }
     };
     reader.readAsDataURL(file);
   };

@@ -26,6 +26,14 @@ import {
   requestPasswordResetLocally,
   resetCustomerPasswordLocally,
 } from './lib/clientFallback';
+import {
+  subscribeToCloudSettings,
+  saveCompanySettingsToCloud,
+  subscribeToCloudCustomers,
+  saveCustomerToCloud,
+  subscribeToCloudTickets,
+  saveTicketToCloud,
+} from './lib/firebase';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<string>('home');
@@ -96,30 +104,36 @@ export default function App() {
         const data = await response.json();
         const settings = data.settings || data;
         if (settings) {
-          setCompanySettings((prev) => ({
-            ...prev,
-            ...settings,
-            logoUrl: settings.logoUrl || prev.logoUrl,
-            qrisUrl: settings.qrisUrl || prev.qrisUrl,
-          }));
-          saveLocalSettings(settings);
+          setCompanySettings((prev) => {
+            const merged = {
+              ...prev,
+              ...settings,
+              logoUrl: (settings.logoUrl && settings.logoUrl.trim() !== '') ? settings.logoUrl : prev.logoUrl,
+              qrisUrl: (settings.qrisUrl && settings.qrisUrl.trim() !== '') ? settings.qrisUrl : prev.qrisUrl,
+            };
+            saveLocalSettings(merged);
+            return merged;
+          });
         }
       }
     } catch (err) {
       console.warn('Failed to fetch company settings:', err);
     }
 
-    // 4. Also check Google Sheets directly (preserving logo and QRIS)
+    // 4. Also check Google Sheets directly (preserving custom logo and QRIS)
     try {
       const sheetData = await fetchFromGoogleSheets();
       if (sheetData && sheetData.settings) {
-        setCompanySettings((prev) => ({
-          ...prev,
-          ...sheetData.settings,
-          logoUrl: sheetData.settings.logoUrl || prev.logoUrl,
-          qrisUrl: sheetData.settings.qrisUrl || prev.qrisUrl,
-        }));
-        saveLocalSettings(sheetData.settings);
+        setCompanySettings((prev) => {
+          const merged = {
+            ...prev,
+            ...sheetData.settings,
+            logoUrl: (sheetData.settings.logoUrl && sheetData.settings.logoUrl.trim() !== '') ? sheetData.settings.logoUrl : prev.logoUrl,
+            qrisUrl: (sheetData.settings.qrisUrl && sheetData.settings.qrisUrl.trim() !== '') ? sheetData.settings.qrisUrl : prev.qrisUrl,
+          };
+          saveLocalSettings(merged);
+          return merged;
+        });
       }
     } catch (gErr) {
       console.warn('Google Sheets settings check:', gErr);
@@ -132,7 +146,23 @@ export default function App() {
     setCompanySettings(updated);
     saveLocalSettings(updated);
 
-    // 2. Persist to server
+    // 2. Broadcast immediately to all other tabs and windows in the same browser (0ms)
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('patasnet_sync');
+        bc.postMessage({ type: 'SETTINGS_UPDATED', settings: updated });
+        bc.close();
+      }
+    } catch (bcErr) {
+      console.warn('BroadcastChannel error:', bcErr);
+    }
+
+    // 3. Real-time background sync across all devices & browsers via Firestore
+    saveCompanySettingsToCloud(updated).catch((err) => {
+      console.warn('Failed to broadcast settings to Firestore:', err);
+    });
+
+    // 4. Persist to server if available (which broadcasts via SSE to all other devices)
     try {
       await fetch('/api/settings/company', {
         method: 'POST',
@@ -143,7 +173,7 @@ export default function App() {
       console.warn('Failed to update company settings on server:', err);
     }
 
-    // 3. Sync to Google Sheets & Drive Webhook in 2-way real time
+    // 5. Sync to Google Sheets & Drive Webhook in 2-way real time
     try {
       await syncToGoogleSheets('update_settings', {
         ...updated,
@@ -158,6 +188,120 @@ export default function App() {
 
   useEffect(() => {
     fetchCompanySettings();
+
+    // 1. Real-time BroadcastChannel for instantaneous cross-tab/cross-window sync
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        bc = new BroadcastChannel('patasnet_sync');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'SETTINGS_UPDATED' && event.data.settings) {
+            setCompanySettings((prev) => ({
+              ...prev,
+              ...event.data.settings,
+              logoUrl: event.data.settings.logoUrl || prev.logoUrl,
+              qrisUrl: event.data.settings.qrisUrl || prev.qrisUrl,
+            }));
+          }
+        };
+      }
+    } catch {}
+
+    // 2. Real-time Server-Sent Events (SSE) across all connected devices & browsers
+    let sse: EventSource | null = null;
+    try {
+      sse = new EventSource('/api/sync/events');
+      sse.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'SETTINGS_UPDATED' && data.settings) {
+            setCompanySettings((prev) => {
+              const merged = {
+                ...prev,
+                ...data.settings,
+                logoUrl: data.settings.logoUrl || prev.logoUrl,
+                qrisUrl: data.settings.qrisUrl || prev.qrisUrl,
+              };
+              saveLocalSettings(merged);
+              return merged;
+            });
+          }
+        } catch {}
+      };
+    } catch {}
+
+    // 3. Real-time background listener for company branding settings (Logo, QRIS, etc.) via Firestore
+    const unsubSettings = subscribeToCloudSettings((cloudSettings) => {
+      if (cloudSettings && typeof cloudSettings === 'object') {
+        setCompanySettings((prev) => {
+          const merged = {
+            ...prev,
+            ...cloudSettings,
+            logoUrl: cloudSettings.logoUrl || prev.logoUrl,
+            qrisUrl: cloudSettings.qrisUrl || prev.qrisUrl,
+          };
+          saveLocalSettings(merged);
+          return merged;
+        });
+      }
+    });
+
+    // 4. Real-time background listener for customers & payment verifications
+    const unsubCustomers = subscribeToCloudCustomers((cloudCusts) => {
+      if (cloudCusts && cloudCusts.length > 0) {
+        setAdminCustomers(cloudCusts);
+        setCurrentUser((curr) => {
+          if (curr && 'id' in curr) {
+            const updated = cloudCusts.find((c) => c.id === curr.id);
+            if (updated) return updated;
+          }
+          return curr;
+        });
+      }
+    });
+
+    // 5. Real-time background listener for tickets
+    const unsubTickets = subscribeToCloudTickets((cloudTickets) => {
+      if (cloudTickets && cloudTickets.length > 0) {
+        setAdminSupportTickets(cloudTickets);
+      }
+    });
+
+    // 6. Fast background poller every 4 seconds as redundant guarantee across any network
+    const bgSyncInterval = setInterval(() => {
+      fetch('/api/settings/company')
+        .then((res) => {
+          if (res.ok) return res.json();
+          return null;
+        })
+        .then((s) => {
+          if (s && typeof s === 'object') {
+            setCompanySettings((prev) => {
+              if (
+                s.logoUrl !== prev.logoUrl ||
+                s.name !== prev.name ||
+                s.qrisUrl !== prev.qrisUrl ||
+                s.qrisMerchantName !== prev.qrisMerchantName
+              ) {
+                const merged = { ...prev, ...s };
+                saveLocalSettings(merged);
+                return merged;
+              }
+              return prev;
+            });
+          }
+        })
+        .catch(() => {});
+    }, 4000);
+
+    return () => {
+      if (bc) bc.close();
+      if (sse) sse.close();
+      clearInterval(bgSyncInterval);
+      unsubSettings();
+      unsubCustomers();
+      unsubTickets();
+    };
   }, []);
 
   // Auto scroll to top on page change
@@ -532,7 +676,14 @@ export default function App() {
     // Update local state immediately
     updateLocalCustomerStatus(id, status);
     setAdminCustomers((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, status } : c))
+      prev.map((c) => {
+        if (c.id === id) {
+          const updated = { ...c, status };
+          saveCustomerToCloud(updated).catch(() => {});
+          return updated;
+        }
+        return c;
+      })
     );
     try {
       await fetch('/api/customers/status', {
@@ -555,7 +706,9 @@ export default function App() {
           const payments = (c.payments || []).map((p) =>
             p.id === paymentId ? { ...p, status: 'paid' as const } : p
           );
-          return { ...c, payments, status: 'active' as const };
+          const updated = { ...c, payments, status: 'active' as const };
+          saveCustomerToCloud(updated).catch(() => {});
+          return updated;
         }
         return c;
       })
@@ -581,7 +734,9 @@ export default function App() {
           const payments = (c.payments || []).map((p) =>
             p.id === paymentId ? { ...p, status: 'unpaid' as const } : p
           );
-          return { ...c, payments };
+          const updated = { ...c, payments };
+          saveCustomerToCloud(updated).catch(() => {});
+          return updated;
         }
         return c;
       })
@@ -684,6 +839,7 @@ export default function App() {
                 onNavigate={setCurrentPage}
                 onSubmitSuccess={(user) => {
                   addLocalCustomer(user);
+                  saveCustomerToCloud(user).catch(() => {});
                   setRegistrationSuccessUser(user);
                 }}
               />

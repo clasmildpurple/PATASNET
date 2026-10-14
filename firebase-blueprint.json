@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "CompanySettings": {
+      "title": "CompanySettings",
+      "description": "Global company and website branding settings",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "legalName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "address": { "type": "string" },
+        "logoText": { "type": "string" },
+        "themeColor": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "coverageText": { "type": "string" },
+        "whatsappNumber": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "instagramUrl": { "type": "string" },
+        "facebookUrl": { "type": "string" },
+        "youtubeUrl": { "type": "string" },
+        "qrisUrl": { "type": "string" },
+        "qrisMerchantName": { "type": "string" },
+        "qrisNmid": { "type": "string" },
+        "qrisAutoVerify": { "type": "boolean" },
+        "qrisInstructions": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "WiFi customer account and subscription record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "packageId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "active", "suspended"] },
+        "ktpImageUrl": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "phone"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer support or network disruption ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhone": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "in_progress", "resolved"] },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "userId", "message", "status"]
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/CompanySettings" },
+      "description": "Global application configuration and branding"
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Registered WiFi customer profiles"
+    },
+    "/tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/SupportTicket" },
+      "description": "Customer support and network tickets"
+    }
+  }
+}

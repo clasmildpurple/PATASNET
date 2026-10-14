@@ -11,13 +11,25 @@ interface LogoProps {
 
 export default function Logo({ className = '', iconOnly = false, inverse = false, companyName, logoUrl, tagline }: LogoProps) {
   const [imageError, setImageError] = React.useState(false);
+  const [currentSrc, setCurrentSrc] = React.useState<string>(logoUrl && logoUrl.trim() !== '' ? logoUrl : '/logo-patasnet.png');
 
-  // Reset error state when logoUrl changes
+  // Reset or update source when logoUrl changes
   React.useEffect(() => {
     setImageError(false);
+    setCurrentSrc(logoUrl && logoUrl.trim() !== '' ? logoUrl : '/logo-patasnet.png');
   }, [logoUrl]);
 
-  const hasValidLogoImage = Boolean(logoUrl && !imageError && logoUrl.trim() !== '');
+  const handleImageError = () => {
+    if (currentSrc !== '/logo-patasnet.png') {
+      // Fallback to built-in logo asset
+      setCurrentSrc('/logo-patasnet.png');
+    } else {
+      // If even default asset fails, show SVG
+      setImageError(true);
+    }
+  };
+
+  const hasValidLogoImage = Boolean(!imageError && currentSrc);
 
   return (
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
@@ -25,9 +37,9 @@ export default function Logo({ className = '', iconOnly = false, inverse = false
       <div className="relative flex items-center justify-center shrink-0">
         {hasValidLogoImage ? (
           <img
-            src={logoUrl}
+            src={currentSrc}
             alt={companyName || 'Logo'}
-            onError={() => setImageError(true)}
+            onError={handleImageError}
             className="w-[42px] h-[42px] object-contain rounded-xl border border-slate-200/50 bg-white p-0.5 shadow-sm transition-transform duration-300 hover:scale-105"
             referrerPolicy="no-referrer"
           />
