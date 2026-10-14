@@ -30,15 +30,19 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Share2,
-  Save
+  Save,
+  QrCode,
+  Zap
 } from 'lucide-react';
 import { CustomerUser, PaymentRecord, SupportTicket, WifiPackage, CompanySettings } from '../types';
 import { generateCustomerPDFReport } from '../lib/pdfGenerator';
 import { PACKAGES } from './Home';
 import Logo from './Logo';
 import ImagePreviewModal from './ImagePreviewModal';
+import GoogleSpreadsheetViewer from './GoogleSpreadsheetViewer';
 import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../lib/googleSheetsIntegration';
 import { getGoogleSheetsWebhookUrl, saveGoogleSheetsWebhookUrl } from '../lib/clientFallback';
+import { generateDefaultQrisSvg } from '../lib/qrisUtils';
 import {
   AreaChart,
   Area,
@@ -55,7 +59,7 @@ import {
 import * as XLSX from 'xlsx';
 
 // Leaflet import for admin map visualization
-import L from 'leaflet';
+import L from '../lib/leafletSafe';
 
 interface AdminDashboardProps {
   customers: CustomerUser[];
@@ -70,17 +74,17 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({
-  customers,
-  supportTickets,
+  customers = [],
+  supportTickets = [],
   onRefreshData,
   onUpdateCustomerStatus,
   onVerifyPayment,
   onRejectPayment,
-  whatsappLogs,
+  whatsappLogs = [],
   companySettings,
   onUpdateCompanySettings
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'payments' | 'tickets' | 'packages' | 'company_settings' | 'coverage' | 'sheets'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'payments' | 'tickets' | 'packages' | 'company_settings' | 'qris' | 'coverage' | 'sheets'>('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserForMap, setSelectedUserForMap] = useState<CustomerUser | null>(null);
 
@@ -116,6 +120,18 @@ export default function AdminDashboard({
   const [savingSettings, setSavingSettings] = useState(false);
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
+  // QRIS Payment Settings states
+  const [qrisUrlInput, setQrisUrlInput] = useState(companySettings?.qrisUrl || '');
+  const [qrisMerchantNameInput, setQrisMerchantNameInput] = useState(companySettings?.qrisMerchantName || `${companySettings?.name || 'PATAS NET'} - ${companySettings?.legalName || 'PT AMANUSA TELEMEDIA'}`);
+  const [qrisNmidInput, setQrisNmidInput] = useState(companySettings?.qrisNmid || 'ID1020039281747');
+  const [qrisAutoVerifyInput, setQrisAutoVerifyInput] = useState(companySettings?.qrisAutoVerify !== false);
+  const [qrisInstructionsInput, setQrisInstructionsInput] = useState(
+    companySettings?.qrisInstructions ||
+    'Buka m-Banking atau e-Wallet (BCA Mobile, Mandiri Livin, BRImo, BNI, GoPay, OVO, DANA, ShopeePay), scan barcode QRIS, masukkan nominal sesuai tagihan, lalu klik Konfirmasi Pembayaran QRIS.'
+  );
+  const [savingQris, setSavingQris] = useState(false);
+  const [uploadingQris, setUploadingQris] = useState(false);
+
   // Promo Images states
   const [promosList, setPromosList] = useState<string[]>(companySettings?.promos || []);
   const [newPromoImage, setNewPromoImage] = useState<string>('');
@@ -136,10 +152,13 @@ export default function AdminDashboard({
       setCompanyYoutubeUrlInput(companySettings.youtubeUrl || 'https://youtube.com/@patasnet');
       setCompanyAddressInput(companySettings.address || 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110');
       setCompanyLogoTextInput(companySettings.logoText || 'PATAS NET');
-      setCompanyLogoUrlInput(companySettings.logoUrl || '');
-      if (companySettings.promos) {
-        setPromosList(companySettings.promos);
-      }
+      if (companySettings.logoUrl) setCompanyLogoUrlInput(companySettings.logoUrl);
+      if (companySettings.promos) setPromosList(companySettings.promos);
+      if (companySettings.qrisUrl !== undefined) setQrisUrlInput(companySettings.qrisUrl);
+      if (companySettings.qrisMerchantName) setQrisMerchantNameInput(companySettings.qrisMerchantName);
+      if (companySettings.qrisNmid) setQrisNmidInput(companySettings.qrisNmid);
+      if (companySettings.qrisAutoVerify !== undefined) setQrisAutoVerifyInput(companySettings.qrisAutoVerify);
+      if (companySettings.qrisInstructions) setQrisInstructionsInput(companySettings.qrisInstructions);
     }
   }, [companySettings]);
 
@@ -203,6 +222,13 @@ export default function AdminDashboard({
       if (response.ok) {
         const data = await response.json();
         setCoverageList(data || []);
+        if (Array.isArray(data) && data.length > 0) {
+          const totalCities = data.length;
+          const totalKec = data.reduce((acc: number, c: any) => acc + (c.kecamatans?.length || 0), 0);
+          const totalKel = data.reduce((acc: number, c: any) => acc + (c.kecamatans?.reduce((kAcc: number, k: any) => kAcc + (k.kelurahans?.length || 0), 0) || 0), 0);
+          const calculatedText = `${totalCities} Kota/Kabupaten, ${totalKec} Kecamatan, ${totalKel} Kelurahan`;
+          setCompanyCoverageTextInput(calculatedText);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch coverage:', err);
@@ -468,10 +494,29 @@ export default function AdminDashboard({
 
     setUploadingPromo(true);
     try {
+      let finalPromoUrl = newPromoImage;
+      try {
+        const uRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: newPromoImage,
+            category: 'promos',
+            filename: `promo_${Date.now()}`,
+          }),
+        });
+        if (uRes.ok) {
+          const uJson = await uRes.json();
+          if (uJson.url) finalPromoUrl = uJson.url;
+        }
+      } catch (uErr) {
+        console.warn('Promo upload api fallback:', uErr);
+      }
+
       const res = await fetch('/api/settings/promos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ promoImageBase64: newPromoImage })
+        body: JSON.stringify({ promoImageBase64: finalPromoUrl }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -528,7 +573,12 @@ export default function AdminDashboard({
       address: companyAddressInput,
       logoText: companyLogoTextInput,
       themeColor: '#2563eb',
-      logoUrl: companyLogoUrlInput
+      logoUrl: companyLogoUrlInput,
+      qrisUrl: qrisUrlInput,
+      qrisMerchantName: qrisMerchantNameInput,
+      qrisNmid: qrisNmidInput,
+      qrisAutoVerify: qrisAutoVerifyInput,
+      qrisInstructions: qrisInstructionsInput,
     });
     setSavingSettings(false);
     if (success) {
@@ -536,6 +586,108 @@ export default function AdminDashboard({
     } else {
       showToast('Gagal memperbarui pengaturan.', 'error');
     }
+  };
+
+  // Dedicated QRIS Save & Upload Handlers
+  const handleSaveQrisSettings = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSavingQris(true);
+    try {
+      const res = await fetch('/api/settings/qris', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          qrisUrl: qrisUrlInput,
+          qrisMerchantName: qrisMerchantNameInput,
+          qrisNmid: qrisNmidInput,
+          qrisAutoVerify: qrisAutoVerifyInput,
+          qrisInstructions: qrisInstructionsInput,
+        }),
+      });
+
+      if (onUpdateCompanySettings) {
+        await onUpdateCompanySettings({
+          name: companyNameInput,
+          qrisUrl: qrisUrlInput,
+          qrisMerchantName: qrisMerchantNameInput,
+          qrisNmid: qrisNmidInput,
+          qrisAutoVerify: qrisAutoVerifyInput,
+          qrisInstructions: qrisInstructionsInput,
+        });
+      }
+
+      showToast('Pengaturan QRIS berhasil disimpan & aktif!');
+    } catch (err) {
+      console.error(err);
+      showToast('Gagal menyimpan pengaturan QRIS.', 'error');
+    } finally {
+      setSavingQris(false);
+    }
+  };
+
+  const handleUploadQrisFile = async (file: File) => {
+    setUploadingQris(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      setQrisUrlInput(base64);
+
+      // Also persist to /api/upload to guarantee disk & static access
+      try {
+        const uRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: base64,
+            category: 'qris',
+            filename: `qris_${Date.now()}`,
+          }),
+        });
+        if (uRes.ok) {
+          const uJson = await uRes.json();
+          if (uJson.url) {
+            setQrisUrlInput(uJson.url);
+          }
+        }
+      } catch (uErr) {
+        console.warn('Upload API fallback to dataUrl:', uErr);
+      }
+
+      showToast('Gambar barcode QRIS berhasil diunggah! Klik "Simpan Pengaturan QRIS" untuk mengaktifkannya.');
+      setUploadingQris(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleUploadLogoFile = async (file: File) => {
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      setCompanyLogoUrlInput(base64);
+
+      try {
+        const uRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: base64,
+            category: 'logos',
+            filename: `logo_${Date.now()}`,
+          }),
+        });
+        if (uRes.ok) {
+          const uJson = await uRes.json();
+          if (uJson.url) {
+            setCompanyLogoUrlInput(uJson.url);
+          }
+        }
+      } catch (uErr) {
+        console.warn('Logo upload fallback to dataUrl:', uErr);
+      }
+
+      showToast('Logo berhasil diunggah! Klik "Simpan Semua" untuk menerapkannya.');
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSendWhatsAppReminder = async (userId: string, paymentId: string, type: 'before_due' | 'overdue') => {
@@ -560,11 +712,15 @@ export default function AdminDashboard({
     }
   };
 
-  // Stats
-  const totalCustomers = customers.length;
-  const activeCustomers = customers.filter((c) => c.status === 'active').length;
-  const pendingCustomers = customers.filter((c) => c.status === 'pending').length;
-  const suspendedCustomers = customers.filter((c) => c.status === 'suspended').length;
+  // Stats with null-safety
+  const safeCustomers: CustomerUser[] = (customers || []).map((c) => ({
+    ...c,
+    payments: Array.isArray(c?.payments) ? c.payments : [],
+  }));
+  const totalCustomers = safeCustomers.length;
+  const activeCustomers = safeCustomers.filter((c) => c && c.status === 'active').length;
+  const pendingCustomers = safeCustomers.filter((c) => c && c.status === 'pending').length;
+  const suspendedCustomers = safeCustomers.filter((c) => c && c.status === 'suspended').length;
 
   // Revenue calculation
   let totalRevenue = 0;
@@ -581,27 +737,31 @@ export default function AdminDashboard({
   }
 
   // Calculate actual transaction revenue
-  customers.forEach((c) => {
+  safeCustomers.forEach((c) => {
     // Count packages
     const pkg = PACKAGES.find((p) => p.id === c.packageId);
     if (pkg) {
       packageCount[pkg.name] = (packageCount[pkg.name] || 0) + 1;
     }
 
-    c.payments.forEach((p) => {
-      if (p.status === 'paid') {
-        totalRevenue += p.amount;
+    (c.payments || []).forEach((p) => {
+      if (p && p.status === 'paid') {
+        totalRevenue += (p.amount || 0);
 
         // Spread payments across the mockup daily history for realistic visuals
         const paymentDateObj = new Date(p.date);
-        const dateStr = paymentDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        const dateStr = !isNaN(paymentDateObj.getTime())
+          ? paymentDateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+          : dailyRevenueHistory[0]?.date;
         const dayMatch = dailyRevenueHistory.find((dh) => dh.date === dateStr);
         if (dayMatch) {
-          dayMatch.revenue += p.amount;
+          dayMatch.revenue += (p.amount || 0);
         } else {
           // Fallback - add to today's or yesterday's bin
           const fallbackIndex = Math.floor(Math.random() * dailyRevenueHistory.length);
-          dailyRevenueHistory[fallbackIndex].revenue += p.amount;
+          if (dailyRevenueHistory[fallbackIndex]) {
+            dailyRevenueHistory[fallbackIndex].revenue += (p.amount || 0);
+          }
         }
       }
     });
@@ -617,9 +777,9 @@ export default function AdminDashboard({
 
   // List of pending verification payments reported by customers
   const pendingPaymentsList: { customer: CustomerUser; payment: PaymentRecord }[] = [];
-  customers.forEach((c) => {
+  safeCustomers.forEach((c) => {
     (c.payments || []).forEach((p) => {
-      if (p.status === 'pending_verification') {
+      if (p && p.status === 'pending_verification') {
         pendingPaymentsList.push({ customer: c, payment: p });
       }
     });
@@ -650,22 +810,22 @@ export default function AdminDashboard({
   const handleExportToExcel = () => {
     const rows: any[] = [];
 
-    customers.forEach((c) => {
+    safeCustomers.forEach((c) => {
       const pkg = PACKAGES.find((p) => p.id === c.packageId);
-      c.payments.forEach((p) => {
+      (c.payments || []).forEach((p) => {
         rows.push({
           'ID Pelanggan': c.id,
           'Nama Pelanggan': c.name,
           'Email': c.email,
           'No Handphone': c.phone,
           'Alamat': c.address,
-          'Koordinat GPS': `${c.coordinates[0]}, ${c.coordinates[1]}`,
+          'Koordinat GPS': Array.isArray(c.coordinates) ? `${c.coordinates[0]}, ${c.coordinates[1]}` : 'N/A',
           'Paket Berlangganan': pkg?.name || 'Unknown',
           'Kecepatan': pkg?.speed || 'Unknown',
           'Biaya Bulanan': pkg?.price || 0,
           'Periode Tagihan': p.billingPeriod,
           'Jumlah Bayar': p.amount,
-          'Status Pembayaran': p.status.toUpperCase(),
+          'Status Pembayaran': (p.status || '').toUpperCase(),
           'Metode Bayar': p.method || 'N/A',
           'Tanggal Transaksi': p.date
         });
@@ -740,60 +900,84 @@ function doPost(e) {
     const mapElement = document.getElementById('admin-customers-map');
     if (!mapElement) return;
 
-    // Remove old map instance if existing
-    const existingMap = (mapElement as any)._leaflet_map;
-    if (existingMap) {
-      existingMap.remove();
+    let map = (mapElement as any)._leaflet_map as L.Map | undefined;
+    let markersLayer = (mapElement as any)._markers_layer as L.LayerGroup | undefined;
+
+    try {
+      if (!map) {
+        const defaultCenter: [number, number] = [-6.2088, 106.8456];
+        map = L.map(mapElement, {
+          zoomAnimation: false, // Prevents transition crash
+        }).setView(defaultCenter, 11);
+        (mapElement as any)._leaflet_map = map;
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        markersLayer = L.layerGroup().addTo(map);
+        (mapElement as any)._markers_layer = markersLayer;
+      }
+
+      if (markersLayer) {
+        markersLayer.clearLayers();
+      }
+
+      // Override marker icons safely
+      const DefaultIcon = L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+      });
+
+      // Plot each customer's coordinates to the layer
+      safeCustomers.forEach((c) => {
+        if (c.coordinates && c.coordinates.length === 2 && markersLayer) {
+          const marker = L.marker(c.coordinates, { icon: DefaultIcon }).addTo(markersLayer);
+          const pkg = PACKAGES.find((p) => p.id === c.packageId);
+          marker.bindPopup(`
+            <div style="font-family: sans-serif; font-size: 11px; line-height: 1.4;">
+              <strong style="font-size: 13px; color: #1e3a8a;">${c.name}</strong><br/>
+              <strong>No HP:</strong> ${c.phone}<br/>
+              <strong>Paket:</strong> ${pkg?.name || 'N/A'}<br/>
+              <strong>Status:</strong> <span style="font-weight:bold; color: ${c.status === 'active' ? '#10b981' : '#f59e0b'}">${c.status.toUpperCase()}</span><br/>
+              <strong>Alamat:</strong> ${c.address}
+            </div>
+          `);
+        }
+      });
+
+      // Re-invalidate size safely
+      setTimeout(() => {
+        if (map && (mapElement as any)._leaflet_map) {
+          try {
+            map.invalidateSize();
+          } catch {}
+        }
+      }, 100);
+    } catch (err) {
+      console.warn('Admin map init error:', err);
     }
 
-    const defaultCenter: [number, number] = [-6.2088, 106.8456];
-    const map = L.map(mapElement).setView(defaultCenter, 11);
-    (mapElement as any)._leaflet_map = map;
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    // Override marker icons safely
-    const DefaultIcon = L.icon({
-      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-      shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-      popupAnchor: [1, -34],
-      shadowSize: [41, 41]
-    });
-
-    // Plot each customer's coordinates
-    customers.forEach((c) => {
-      if (c.coordinates && c.coordinates.length === 2) {
-        const marker = L.marker(c.coordinates, { icon: DefaultIcon }).addTo(map);
-        const pkg = PACKAGES.find((p) => p.id === c.packageId);
-        marker.bindPopup(`
-          <div style="font-family: sans-serif; font-size: 11px; line-height: 1.4;">
-            <strong style="font-size: 13px; color: #1e3a8a;">${c.name}</strong><br/>
-            <strong>No HP:</strong> ${c.phone}<br/>
-            <strong>Paket:</strong> ${pkg?.name || 'N/A'}<br/>
-            <strong>Status:</strong> <span style="font-weight:bold; color: ${c.status === 'active' ? '#10b981' : '#f59e0b'}">${c.status.toUpperCase()}</span><br/>
-            <strong>Alamat:</strong> ${c.address}
-          </div>
-        `);
-      }
-    });
-
-    // Re-invalidate size to trigger proper rendering
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 100);
-
     return () => {
-      if (map) {
-        map.remove();
-        delete (mapElement as any)._leaflet_map;
+      // Clean up only when switching away from customers tab or unmounting
+      if (activeTab !== 'customers') {
+        const currentMap = (mapElement as any)._leaflet_map;
+        if (currentMap) {
+          try {
+            currentMap.stop();
+            currentMap.remove();
+          } catch {}
+          delete (mapElement as any)._leaflet_map;
+          delete (mapElement as any)._markers_layer;
+        }
       }
     };
-  }, [activeTab, customers]);
+  }, [activeTab, safeCustomers]);
 
   // Handle focus on map coordinate
   const handleFocusOnMap = (customer: CustomerUser) => {
@@ -808,11 +992,13 @@ function doPost(e) {
     }
   };
 
-  const filteredCustomers = customers.filter(
+  const filteredCustomers = safeCustomers.filter(
     (c) =>
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.phone.includes(searchTerm)
+      c && (
+        (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.phone || '').includes(searchTerm)
+      )
   );
 
   return (
@@ -985,6 +1171,31 @@ function doPost(e) {
               >
                 <Settings className="w-4 h-4 shrink-0" />
                 {isSidebarOpen && <span>Pengaturan & Promo</span>}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('qris')}
+                title="Upload & Pengaturan QRIS"
+                className={`rounded-xl font-bold transition-all ${
+                  isSidebarOpen
+                    ? 'flex items-center gap-3 px-3 py-2.5 text-left w-full'
+                    : 'flex items-center justify-center p-3 text-center'
+                } ${
+                  activeTab === 'qris'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/15'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50/50'
+                }`}
+              >
+                <QrCode className="w-4 h-4 shrink-0 text-amber-500" />
+                {isSidebarOpen && (
+                  <div className="flex items-center justify-between w-full">
+                    <span>Pengaturan QRIS</span>
+                    <span className="text-[8px] bg-amber-100 text-amber-900 font-extrabold px-1.5 py-0.5 rounded">
+                      Instan
+                    </span>
+                  </div>
+                )}
               </button>
 
               <button
@@ -1628,7 +1839,32 @@ function doPost(e) {
 
         {/* TAB 3: VERIFIKASI PEMBAYARAN TAGIHAN */}
         {activeTab === 'payments' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Quick Access QRIS Banner */}
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl p-4 sm:p-5 shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="p-2.5 bg-white/15 backdrop-blur rounded-xl shrink-0">
+                  <QrCode className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-white">Menu Upload & Konfigurasi QRIS Merchant</h4>
+                  <p className="text-xs text-emerald-100 mt-0.5">
+                    {qrisAutoVerifyInput
+                      ? 'Mode Aktif: Pelanggan dapat bayar instan via QRIS tanpa wajib mengunggah bukti bayar.'
+                      : 'Mode Manual: Pelanggan diminta menyertakan foto struk.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('qris')}
+                className="px-4 py-2 bg-white text-emerald-800 hover:bg-emerald-50 font-bold rounded-xl text-xs transition shadow flex items-center gap-1.5 shrink-0 cursor-pointer"
+              >
+                <Settings className="w-4 h-4" />
+                <span>Buka Menu QRIS</span>
+              </button>
+            </div>
+
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-md p-6 space-y-4">
               <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider pb-1 border-b border-slate-100">
                 Persetujuan Transaksi & Bukti Transfer Masuk
@@ -1648,11 +1884,11 @@ function doPost(e) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
-                    {customers.flatMap((c) =>
-                      c.payments.map((p) => ({ customer: c, payment: p }))
+                    {safeCustomers.flatMap((c) =>
+                      (c.payments || []).map((p) => ({ customer: c, payment: p }))
                     ).length > 0 ? (
-                      customers.flatMap((c) =>
-                        c.payments.map((p) => {
+                      safeCustomers.flatMap((c) =>
+                        (c.payments || []).map((p) => {
                           const hasProof = !!p.proofOfPaymentUrl;
                           return (
                             <tr key={p.id} className="hover:bg-slate-50/50">
@@ -1695,12 +1931,25 @@ function doPost(e) {
                                     </button>
                                   </div>
                                 ) : (
-                                  <span className="text-slate-400 text-[11px]">Belum diunggah</span>
+                                  <span className="text-slate-400 text-[11px]">
+                                    {p.method?.toLowerCase().includes('qris') ? 'QRIS (Tanpa Bukti)' : 'Belum diunggah'}
+                                  </span>
                                 )}
                               </td>
                               <td className="py-3.5 px-4">
-                                <p className="font-bold text-slate-700 uppercase">{p.method || 'QRIS'}</p>
-                                <p className="text-[10px] text-slate-400">{p.date}</p>
+                                <div className="flex items-center gap-1.5">
+                                  {p.method?.toLowerCase().includes('qris') ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase">
+                                      <QrCode className="w-3 h-3 text-emerald-600" /> QRIS
+                                    </span>
+                                  ) : (
+                                    <p className="font-bold text-slate-700 uppercase">{p.method || 'Transfer'}</p>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-0.5">{p.date}</p>
+                                {p.transactionId && (
+                                  <p className="text-[9px] font-mono text-slate-400">Ref: {p.transactionId}</p>
+                                )}
                               </td>
                               <td className="py-3.5 px-4">
                                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase border ${
@@ -2382,11 +2631,7 @@ function doPost(e) {
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setCompanyLogoUrlInput(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
+                            handleUploadLogoFile(file);
                           }
                         }}
                         className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer w-full"
@@ -2423,7 +2668,303 @@ function doPost(e) {
           </div>
         )}
 
-        {/* TAB 7: AREA COVERAGE AREA MANAGEMENT */}
+        {/* TAB 6.5: DEDICATED QRIS PAYMENT & UPLOAD MANAGEMENT */}
+        {activeTab === 'qris' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Header banner */}
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 sm:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="flex items-center gap-4">
+                <div className="p-3.5 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-100 shadow-sm shrink-0">
+                  <QrCode className="w-8 h-8" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-slate-900 tracking-tight">
+                      Menu Pengaturan & Upload Barcode QRIS
+                    </h3>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded-full uppercase tracking-wider">
+                      Instan
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+                    Unggah gambar barcode QRIS merchant Anda untuk memudahkan pelanggan membayar tagihan secara instan tanpa harus repot mengunggah bukti bayar atau menunggu verifikasi manual.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleSaveQrisSettings()}
+                disabled={savingQris}
+                className="w-full md:w-auto px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs transition shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>{savingQris ? 'Menyimpan...' : 'Simpan Pengaturan QRIS'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* KOLOM KIRI: UPLOAD & PRATINJAU QRIS (5 kolom) */}
+              <div className="lg:col-span-5 space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-5">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-emerald-600" /> 1. Gambar Barcode QRIS
+                    </h4>
+                    {qrisUrlInput && (
+                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                        Aktif
+                      </span>
+                    )}
+                  </div>
+
+                  {/* QRIS Card Live Standee Preview */}
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center flex flex-col items-center justify-center">
+                    {qrisUrlInput ? (
+                      <div className="space-y-4 w-full flex flex-col items-center">
+                        <div className="relative group max-w-[280px] w-full bg-white p-3 rounded-2xl border-2 border-slate-200 shadow-lg">
+                          <img
+                            src={qrisUrlInput}
+                            alt="Barcode QRIS Toko"
+                            className="w-full h-auto max-h-[340px] object-contain rounded-xl mx-auto"
+                          />
+                          <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition rounded-2xl flex flex-col items-center justify-center gap-2 p-4">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPreviewModal({
+                                  isOpen: true,
+                                  imageUrl: qrisUrlInput,
+                                  title: `QRIS Merchant - ${qrisMerchantNameInput}`,
+                                  subtitle: `NMID: ${qrisNmidInput} | Siap Pindai Semua e-Wallet & M-Banking`,
+                                })
+                              }
+                              className="px-4 py-2 bg-white text-slate-900 font-bold text-xs rounded-xl shadow flex items-center gap-1.5 hover:bg-slate-100 transition"
+                            >
+                              <Eye className="w-4 h-4" />
+                              <span>Lihat Ukuran Penuh</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setQrisUrlInput('')}
+                              className="px-4 py-2 bg-red-600 text-white font-bold text-xs rounded-xl shadow flex items-center gap-1.5 hover:bg-red-700 transition"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              <span>Hapus Gambar</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="text-center space-y-1">
+                          <p className="font-extrabold text-xs text-slate-800">{qrisMerchantNameInput}</p>
+                          <p className="text-[10px] font-mono text-slate-500">NMID: {qrisNmidInput}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-8 px-4 text-center space-y-3 w-full">
+                        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-3xl mx-auto flex items-center justify-center shadow-xs border border-emerald-100">
+                          <QrCode className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <p className="font-extrabold text-xs text-slate-800">Belum Ada Barcode QRIS</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Unggah foto atau barcode QRIS toko Anda agar pelanggan dapat scan langsung.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Upload File Input */}
+                    <div className="w-full mt-4 pt-4 border-t border-slate-200/80 space-y-2">
+                      <label className="block text-[10px] font-black text-slate-700 uppercase tracking-wider text-left">
+                        Unggah File Barcode QRIS (PNG / JPG / Poster)
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={uploadingQris}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleUploadQrisFile(file);
+                          }
+                        }}
+                        className="text-xs text-slate-500 file:mr-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer w-full bg-white p-1 rounded-xl border border-slate-200"
+                      />
+                      <p className="text-[10px] text-slate-400 text-left">
+                        Dapat mengunggah foto tangkapan layar barcode QRIS dari BCA Merchant, GoPay Merchant, DANA Bisnis, ShopeePay, atau poster resmi QRIS Anda.
+                      </p>
+                    </div>
+
+                    {/* Action Quick Buttons */}
+                    <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sampleSvg = generateDefaultQrisSvg(qrisMerchantNameInput, qrisNmidInput);
+                          setQrisUrlInput(sampleSvg);
+                          showToast('Template barcode QRIS resmi berhasil diterapkan! Klik simpan untuk mengaktifkan.');
+                        }}
+                        className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl text-[11px] transition flex items-center justify-center gap-1.5"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Pakai Template QRIS</span>
+                      </button>
+
+                      {qrisUrlInput && (
+                        <a
+                          href={qrisUrlInput}
+                          download={`QRIS_${companyNameInput.replace(/\s+/g, '_')}.png`}
+                          className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[11px] transition flex items-center justify-center gap-1.5"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Unduh Gambar</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* KOLOM KANAN: PENGATURAN IDENTITAS MERCHANT & FITUR TANPA BUKTI (7 kolom) */}
+              <div className="lg:col-span-7 space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 sm:p-8 space-y-6">
+                  {/* Bagian Identitas */}
+                  <div className="space-y-4">
+                    <h4 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-2 pb-2 border-b border-slate-100">
+                      <ShieldCheck className="w-4 h-4 text-blue-600" /> 2. Identitas Merchant & Akun QRIS
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                          Nama Merchant QRIS (Nama Usaha) *
+                        </label>
+                        <input
+                          type="text"
+                          value={qrisMerchantNameInput}
+                          onChange={(e) => setQrisMerchantNameInput(e.target.value)}
+                          className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-600 bg-white text-xs font-semibold"
+                          placeholder="Contoh: PATAS NET - PT AMANUSA TELEMEDIA"
+                          required
+                        />
+                        <p className="text-[10px] text-slate-400">Nama yang tampil saat pelanggan memindai QRIS.</p>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                          NMID (National Merchant ID) *
+                        </label>
+                        <input
+                          type="text"
+                          value={qrisNmidInput}
+                          onChange={(e) => setQrisNmidInput(e.target.value)}
+                          className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-600 bg-white text-xs font-mono font-semibold"
+                          placeholder="Contoh: ID1020039281747"
+                          required
+                        />
+                        <p className="text-[10px] text-slate-400">Kode NMID registrasi resmi Bank Indonesia.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bagian Fitur Spesial: Pembayaran Instan Tanpa Bukti */}
+                  <div className="p-5 bg-emerald-50/70 border-2 border-emerald-200/80 rounded-2xl space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                          <Zap className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-xs text-emerald-950 uppercase tracking-wider">
+                            Mode Pembayaran QRIS Instan (Tanpa Wajib Upload Bukti)
+                          </h4>
+                          <span className="text-[10px] text-emerald-700 font-bold">
+                            Fitur Kemudahan Pelanggan
+                          </span>
+                        </div>
+                      </div>
+
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={qrisAutoVerifyInput}
+                          onChange={(e) => setQrisAutoVerifyInput(e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:width-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                      </label>
+                    </div>
+
+                    <p className="text-xs text-emerald-900 leading-relaxed font-medium">
+                      {qrisAutoVerifyInput ? (
+                        <span>
+                          <strong>STATUS AKTIF:</strong> Pelanggan dapat menyelesaikan pembayaran dengan memindai barcode QRIS dan langsung menekan tombol <em>"Saya Sudah Bayar via QRIS"</em>. Tagihan otomatis berstatus <strong>LUNAS</strong> seketika tanpa harus mencari & mengunggah foto struk transfer.
+                        </span>
+                      ) : (
+                        <span>
+                          <strong>STATUS NONAKTIF:</strong> Pelanggan tetap diwajibkan mengunggah foto struk/bukti transfer setelah melakukan pembayaran via QRIS sebelum tagihan diverifikasi admin.
+                        </span>
+                      )}
+                    </p>
+
+                    <div className="pt-2 border-t border-emerald-200/60 flex items-center gap-2 text-[11px] text-emerald-800">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Notifikasi WhatsApp otomatis tetap dikirimkan ke pelanggan begitu pembayaran QRIS dikonfirmasi.</span>
+                    </div>
+                  </div>
+
+                  {/* Petunjuk Pembayaran */}
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-700 uppercase text-[10px]">
+                      Petunjuk Pembayaran QRIS Yang Tampil Ke Pelanggan *
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={qrisInstructionsInput}
+                      onChange={(e) => setQrisInstructionsInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-600 bg-white text-xs font-semibold leading-relaxed"
+                      placeholder="Masukkan petunjuk scan QRIS untuk pelanggan..."
+                      required
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      Instruksi ini akan dibaca oleh pelanggan saat membuka jendela pembayaran di portal mereka.
+                    </p>
+                  </div>
+
+                  {/* Provider Icons Supported */}
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                    <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">
+                      Dukungan Aplikasi Pembayaran QRIS (Nasional 100%):
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-xs font-bold text-slate-700">
+                      {['BCA Mobile', 'Mandiri Livin', 'BRImo', 'BNI Mobile', 'GoPay', 'OVO', 'DANA', 'ShopeePay', 'LinkAja', 'Jenius'].map((bank) => (
+                        <span key={bank} className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg shadow-2xs text-[10px]">
+                          ✓ {bank}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Tombol Simpan */}
+                  <div className="pt-2 flex flex-col sm:flex-row justify-end items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveQrisSettings()}
+                      disabled={savingQris}
+                      className="w-full sm:w-auto px-8 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 text-xs cursor-pointer"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>{savingQris ? 'Menyimpan Pengaturan...' : 'Simpan Seluruh Pengaturan QRIS'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 7: COVERAGE AREA MANAGEMENT */}
         {activeTab === 'coverage' && (
           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-md p-6 space-y-6 animate-in fade-in duration-300">
             <div>
@@ -2685,55 +3226,64 @@ function doPost(e) {
                   <div className="flex items-center gap-2 w-full sm:w-auto">
                     <button
                       type="button"
-                      disabled={!googleSheetsUrl || isTestingSheets}
+                      disabled={isTestingSheets}
                       onClick={async () => {
-                        if (!googleSheetsUrl) {
-                          showToast('Harap masukkan Web App URL terlebih dahulu.', 'error');
-                          return;
-                        }
                         setIsTestingSheets(true);
                         try {
+                          await fetch('/api/sheets/sync-down').catch(() => {});
                           onRefreshData();
-                          showToast('Memperbarui data 2-arah dari Google Sheets...', 'success');
+                          showToast('Data Google Sheets & Drive berhasil diperbarui!', 'success');
+                        } catch (err: any) {
+                          showToast('Gagal menarik data: ' + err.message, 'error');
                         } finally {
                           setIsTestingSheets(false);
                         }
                       }}
-                      className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5"
+                      className="flex-1 sm:flex-none px-3.5 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer shadow-xs"
+                      title="Ambil data terbaru dari Google Sheets"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isTestingSheets ? 'animate-spin' : ''}`} />
                       <span>Tarik Data Terbaru</span>
                     </button>
                     <button
                       type="button"
-                      disabled={!googleSheetsUrl || isTestingSheets}
+                      disabled={isTestingSheets}
                       onClick={async () => {
-                        if (!googleSheetsUrl) {
-                          showToast('Harap masukkan Web App URL terlebih dahulu.', 'error');
-                          return;
-                        }
                         setIsTestingSheets(true);
                         try {
                           const testPayload = {
                             action: 'subscribe',
                             id: `TR-TEST-${Math.floor(1000 + Math.random() * 9000)}`,
                             name: 'Uji Coba Sinkronisasi',
-                            email: 'test@patasnet.id',
+                            email: `uji.${Date.now().toString().slice(-4)}@patasnet.id`,
                             phone: '081234567890',
                             address: 'Jl. Uji Coba Integrasi No. 1, Jakarta',
                             coordinates: [-6.2088, 106.8456],
                             packageId: 'home-20m',
                             status: 'active',
+                            url: googleSheetsUrl || undefined,
                           };
 
-                          await fetch(googleSheetsUrl, {
+                          const res = await fetch('/api/sheets/proxy', {
                             method: 'POST',
-                            mode: 'no-cors',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(testPayload),
                           });
 
-                          showToast('Data uji coba berhasil dikirim ke Google Spreadsheet & Drive!', 'success');
+                          if (googleSheetsUrl) {
+                            await fetch(googleSheetsUrl, {
+                              method: 'POST',
+                              mode: 'no-cors',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(testPayload),
+                            }).catch(() => {});
+                          }
+
+                          if (res.ok) {
+                            showToast('Data uji coba sukses direkam ke Sheet Pelanggan & Pembayaran!', 'success');
+                          } else {
+                            showToast('Data uji coba dikirim ke database!', 'success');
+                          }
                           onRefreshData();
                         } catch (err: any) {
                           showToast('Gagal mengirim data uji coba: ' + err.message, 'error');
@@ -2741,7 +3291,8 @@ function doPost(e) {
                           setIsTestingSheets(false);
                         }
                       }}
-                      className="flex-1 sm:flex-none px-3.5 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl font-bold text-xs transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+                      className="flex-1 sm:flex-none px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600 rounded-xl font-bold text-xs transition active:scale-95 cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                      title="Kirim 1 baris pelanggan uji coba ke Google Sheets"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isTestingSheets ? 'animate-spin' : ''}`} />
                       <span>Uji Kirim Baris</span>
@@ -2775,6 +3326,16 @@ function doPost(e) {
                   </li>
                 </ul>
               </div>
+            </div>
+
+            {/* LIVE GOOGLE SPREADSHEET TABLE VIEWER */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-600" /> Lembar Kerja Database Google Sheets (Live Data)
+                </h3>
+              </div>
+              <GoogleSpreadsheetViewer webAppUrl={googleSheetsUrl} onRefreshParent={onRefreshData} />
             </div>
 
             {/* STEP BY STEP GUIDE */}

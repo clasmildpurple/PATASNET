@@ -77,7 +77,7 @@ export function generateCustomerPDFReport(user: CustomerUser, tickets: SupportTi
 
   let yOffset = 164;
   doc.setFont('helvetica', 'normal');
-  user.payments.forEach((pm) => {
+  (user.payments || []).forEach((pm) => {
     if (yOffset > 270) {
       doc.addPage();
       yOffset = 20;

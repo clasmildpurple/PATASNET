@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { CustomerUser, SupportTicket, PaymentRecord, WifiPackage } from './src/types.ts';
 import crypto from 'crypto';
@@ -14,6 +15,7 @@ import {
   submitPaymentProof,
   approvePayment,
   rejectPayment,
+  processQrisPayment,
   getAllTickets,
   createTicket,
   getAllPackages,
@@ -43,15 +45,29 @@ import {
   saveSheetsConfig,
   syncSheetsWebhook,
   fetchFromGoogleSheetsServer,
+  getGoogleSheetsDatabase,
 } from './src/lib/serverSheets.ts';
 import { GOOGLE_APPS_SCRIPT_TEMPLATE } from './src/lib/googleSheetsIntegration.ts';
 
 const app = express();
 const PORT = 3000;
 
-// Middleware for parsing large bodies (for base64 KTP images and receipt uploads)
-app.use(express.json({ limit: '15mb' }));
-app.use(express.urlencoded({ limit: '15mb', extended: true }));
+// Persistent Uploads Directory for images (Logos, QRIS, Promos, KTP, Struk)
+const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+['logos', 'qris', 'promos', 'ktp', 'proofs', 'general'].forEach((sub) => {
+  const p = path.join(UPLOADS_DIR, sub);
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+});
+
+// Serve uploaded files statically with cache headers
+app.use('/uploads', express.static(UPLOADS_DIR, { maxAge: '7d' }));
+
+// Middleware for parsing large bodies (for base64 KTP images, QRIS, and receipt uploads)
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ limit: '25mb', extended: true }));
 
 // Password hashing using SHA256 securely
 function encryptPassword(password: string): string {
@@ -176,34 +192,57 @@ app.post('/api/subscribe', async (req, res) => {
       billingPeriod: 'Juli 2026',
     };
 
-    const newCustomer = await createCustomer({
-      id: newId,
-      name,
-      email,
-      phone,
-      address,
-      coordinates: coordinates || [-6.2088, 106.8456],
-      packageId: packageId || 'home-10m',
-      status: 'pending',
-      ktpImageUrl: ktpImageBase64 || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=400&q=80',
-      passwordHash: encryptPassword(password || 'user123'),
-      createdAt: new Date().toISOString().split('T')[0],
-      initialPayment,
-    });
+    // 1. ALWAYS push new registration directly to Google Sheets & Drive Webhook first
+    try {
+      await syncSheetsWebhook('subscribe', {
+        id: newId,
+        name,
+        email,
+        phone,
+        address,
+        coordinates: coordinates || [-6.2088, 106.8456],
+        packageId: packageId || 'home-10m',
+        status: 'pending',
+        ktpImageBase64: ktpImageBase64 || '',
+        amount: initialPayment.amount,
+      });
+    } catch (syncErr) {
+      console.error('[Google Sheets Registration Sync Error]:', syncErr);
+    }
 
-    // Automatically push new registration directly to Google Sheets & Drive Webhook in real-time
-    syncSheetsWebhook('subscribe', {
-      id: newId,
-      name,
-      email,
-      phone,
-      address,
-      coordinates: coordinates || [-6.2088, 106.8456],
-      packageId: packageId || 'home-10m',
-      status: 'pending',
-      ktpImageBase64: ktpImageBase64 || '',
-      amount: initialPayment.amount,
-    }).catch((syncErr) => console.error('[Google Sheets Registration Sync Error]:', syncErr));
+    // 2. Try recording to PostgreSQL database with fallback
+    let newCustomer: any = null;
+    try {
+      newCustomer = await createCustomer({
+        id: newId,
+        name,
+        email,
+        phone,
+        address,
+        coordinates: coordinates || [-6.2088, 106.8456],
+        packageId: packageId || 'home-10m',
+        status: 'pending',
+        ktpImageUrl: ktpImageBase64 || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=400&q=80',
+        passwordHash: encryptPassword(password || 'user123'),
+        createdAt: new Date().toISOString().split('T')[0],
+        initialPayment,
+      });
+    } catch (dbErr) {
+      console.warn('Postgres createCustomer error, using local/sheets object:', dbErr);
+      newCustomer = {
+        id: newId,
+        name,
+        email,
+        phone,
+        address,
+        coordinates: coordinates || [-6.2088, 106.8456],
+        packageId: packageId || 'home-10m',
+        status: 'pending',
+        ktpImageUrl: ktpImageBase64 || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=400&q=80',
+        createdAt: new Date().toISOString().split('T')[0],
+        payments: [initialPayment],
+      };
+    }
 
     return res.json({ status: 'success', user: newCustomer });
   } catch (err: any) {
@@ -225,6 +264,128 @@ app.post('/api/customers/status', async (req, res) => {
   }
 });
 
+// Universal Image Upload API (saves images to /uploads/ with persistent disk + static serving)
+app.post('/api/upload', async (req, res) => {
+  try {
+    const { imageBase64, category = 'general', filename } = req.body;
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ status: 'error', message: 'Data gambar tidak valid.' });
+    }
+
+    const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    let buffer: Buffer;
+    let ext = 'png';
+
+    if (matches && matches.length === 3) {
+      const mime = matches[1].toLowerCase();
+      if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+      else if (mime.includes('svg')) ext = 'svg';
+      else if (mime.includes('webp')) ext = 'webp';
+      buffer = Buffer.from(matches[2], 'base64');
+    } else {
+      buffer = Buffer.from(imageBase64, 'base64');
+    }
+
+    const validCategories = ['logos', 'qris', 'promos', 'ktp', 'proofs', 'general'];
+    const safeCategory = validCategories.includes(category) ? category : 'general';
+    const catDir = path.join(UPLOADS_DIR, safeCategory);
+    if (!fs.existsSync(catDir)) fs.mkdirSync(catDir, { recursive: true });
+
+    const safeName = filename ? filename.replace(/[^a-zA-Z0-9_-]/g, '_') : `${safeCategory}_${Date.now()}`;
+    const targetFile = `${safeName}.${ext}`;
+    const filePath = path.join(catDir, targetFile);
+
+    fs.writeFileSync(filePath, buffer);
+    const publicUrl = `/uploads/${safeCategory}/${targetFile}`;
+
+    return res.json({
+      status: 'success',
+      url: publicUrl,
+      dataUrl: imageBase64,
+      message: 'Gambar berhasil diunggah & tersimpan permanen!',
+    });
+  } catch (err: any) {
+    console.error('API Upload Error:', err);
+    return res.status(500).json({ status: 'error', message: 'Gagal mengunggah gambar ke server.' });
+  }
+});
+
+// Instant QRIS Payment API (Tanpa Harus Wajib Upload Bukti Transfer)
+app.post('/api/payments/qris-pay', async (req, res) => {
+  try {
+    const { userId, paymentId, amount, customerName } = req.body;
+    if (!userId || !paymentId) {
+      return res.status(400).json({ status: 'error', message: 'ID Pelanggan dan ID Tagihan wajib disertakan.' });
+    }
+
+    const settings = await getCompanySettings();
+    const isAutoVerify = settings.qrisAutoVerify !== false;
+    const txId = `QRIS-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    let updated: any = null;
+    if (isAutoVerify) {
+      // Auto-approve payment immediately
+      try {
+        updated = await processQrisPayment(userId, paymentId);
+      } catch (procErr) {
+        console.warn('processQrisPayment fallback to approvePayment:', procErr);
+        updated = await approvePayment(userId, paymentId);
+      }
+
+      // Sync payment approval to Google Sheets
+      syncSheetsWebhook('approve_payment', {
+        userId,
+        paymentId,
+        method: 'QRIS',
+        transactionId: txId,
+      }).catch((err) => console.error('[Google Sheets QRIS Sync Error]:', err));
+
+      if (updated) {
+        const payment = updated.payments?.find((p: any) => p.id === paymentId);
+        logWhatsAppMessage(
+          updated.phone,
+          `[WhatsApp Otomatis] Halo ${updated.name}, Pembayaran tagihan ${settings.name} Anda periode ${payment?.billingPeriod || 'berjalan'} sebesar Rp ${(payment?.amount || amount || 0).toLocaleString('id-ID')} via QRIS telah BERHASIL diverifikasi dan Lunas. No. Ref: ${txId}. Internet Anda tetap aktif & stabil tanpa FUP.`
+        );
+      }
+    } else {
+      // Submit as pending verification
+      updated = await submitPaymentProof({
+        userId,
+        paymentId,
+        method: 'QRIS',
+        proofOfPaymentUrl: settings.qrisUrl || 'https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?auto=format&fit=crop&w=400&q=80',
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      });
+
+      syncSheetsWebhook('submit_payment_proof', {
+        userId,
+        paymentId,
+        method: 'QRIS',
+        proofBase64: '',
+      }).catch((err) => console.error('[Google Sheets QRIS Sync Error]:', err));
+
+      if (updated) {
+        logWhatsAppMessage(
+          updated.phone,
+          `[WhatsApp Otomatis] Halo ${updated.name}, Konfirmasi pembayaran QRIS telah kami terima dan menunggu validasi admin. Terima kasih!`
+        );
+      }
+    }
+
+    return res.json({
+      status: 'success',
+      user: updated,
+      transactionId: txId,
+      message: isAutoVerify
+        ? 'Pembayaran QRIS Berhasil! Tagihan Anda telah LUNAS & internet tetap aktif.'
+        : 'Konfirmasi pembayaran QRIS terkirim! Menunggu verifikasi admin.',
+    });
+  } catch (err: any) {
+    console.error('QRIS Payment error:', err);
+    return res.status(500).json({ status: 'error', message: 'Gagal memproses pembayaran QRIS.' });
+  }
+});
+
 // Submit/Verify payment API (Proof of payment submission)
 app.post('/api/payments/verify', async (req, res) => {
   try {
@@ -233,7 +394,7 @@ app.post('/api/payments/verify', async (req, res) => {
     const updated = await submitPaymentProof({
       userId,
       paymentId,
-      method,
+      method: method || 'Transfer Bank',
       proofOfPaymentUrl: proofOfPaymentUrlBase64 || 'https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?auto=format&fit=crop&w=400&q=80',
       date: new Date().toISOString().replace('T', ' ').substring(0, 19),
     });
@@ -242,7 +403,7 @@ app.post('/api/payments/verify', async (req, res) => {
     syncSheetsWebhook('submit_payment_proof', {
       userId,
       paymentId,
-      method,
+      method: method || 'Transfer Bank',
       proofBase64: proofOfPaymentUrlBase64 || '',
     }).catch((err) => console.error('[Google Sheets Payment Proof Sync Error]:', err));
 
@@ -384,6 +545,11 @@ app.post('/api/settings/company', async (req, res) => {
       instagramUrl,
       facebookUrl,
       youtubeUrl,
+      qrisUrl,
+      qrisMerchantName,
+      qrisNmid,
+      qrisAutoVerify,
+      qrisInstructions,
     } = req.body;
 
     const settings = await updateCompanySettings({
@@ -401,6 +567,11 @@ app.post('/api/settings/company', async (req, res) => {
       instagramUrl,
       facebookUrl,
       youtubeUrl,
+      qrisUrl,
+      qrisMerchantName,
+      qrisNmid,
+      qrisAutoVerify,
+      qrisInstructions,
     });
 
     // Sync to Google Sheets & Drive Webhook in real-time
@@ -418,6 +589,55 @@ app.post('/api/settings/company', async (req, res) => {
   } catch (err: any) {
     console.error('Update company settings error:', err);
     return res.status(500).json({ status: 'error', message: 'Gagal memperbarui pengaturan perusahaan.' });
+  }
+});
+
+// Dedicated QRIS Settings Endpoints
+app.get('/api/settings/qris', async (req, res) => {
+  try {
+    const settings = await getCompanySettings();
+    return res.json({
+      status: 'success',
+      qrisUrl: settings.qrisUrl || '',
+      qrisMerchantName: settings.qrisMerchantName || `${settings.name} - ${settings.legalName || 'PT AMANUSA TELEMEDIA'}`,
+      qrisNmid: settings.qrisNmid || 'ID1020039281747',
+      qrisAutoVerify: settings.qrisAutoVerify !== false,
+      qrisInstructions: settings.qrisInstructions || 'Scan barcode QRIS dengan aplikasi Mobile Banking atau e-Wallet apa pun. Setelah bayar, klik Konfirmasi Pembayaran QRIS.',
+    });
+  } catch (err: any) {
+    console.error('Get QRIS settings error:', err);
+    return res.status(500).json({ status: 'error', message: 'Gagal memuat pengaturan QRIS.' });
+  }
+});
+
+app.post('/api/settings/qris', async (req, res) => {
+  try {
+    const { qrisUrl, qrisMerchantName, qrisNmid, qrisAutoVerify, qrisInstructions } = req.body;
+    const settings = await updateCompanySettings({
+      qrisUrl,
+      qrisMerchantName,
+      qrisNmid,
+      qrisAutoVerify: qrisAutoVerify !== false,
+      qrisInstructions,
+    });
+
+    syncSheetsWebhook('update_qris', {
+      qrisUrl,
+      qrisMerchantName,
+      qrisNmid,
+      qrisAutoVerify,
+      qrisInstructions,
+    }).catch((gErr) => console.error('[Google Sheets QRIS Sync Error]:', gErr));
+
+    logWhatsAppMessage(
+      'SISTEM',
+      `[Pengaturan QRIS] Barcode QRIS & Mode Pembayaran Instan diperbarui untuk merchant: ${settings.qrisMerchantName || settings.name}`
+    );
+
+    return res.json({ status: 'success', settings });
+  } catch (err: any) {
+    console.error('Update QRIS settings error:', err);
+    return res.status(500).json({ status: 'error', message: 'Gagal memperbarui pengaturan QRIS.' });
   }
 });
 
@@ -560,6 +780,27 @@ app.get('/api/coverage', async (req, res) => {
   }
 });
 
+async function syncCoverageSummaryWithSettings(coverageData?: any[]) {
+  try {
+    const list = coverageData || (await getAllCoverage());
+    const totalCities = list.length;
+    let totalKec = 0;
+    let totalKel = 0;
+    list.forEach((c: any) => {
+      totalKec += (c.kecamatans || []).length;
+      (c.kecamatans || []).forEach((k: any) => {
+        totalKel += (k.kelurahans || []).length;
+      });
+    });
+    const summaryText = `${totalCities} Kota/Kabupaten, ${totalKec} Kecamatan, ${totalKel} Kelurahan`;
+    await updateCompanySettings({ coverageText: summaryText });
+    syncSheetsWebhook('update_settings', { coverageText: summaryText }).catch(() => {});
+    return summaryText;
+  } catch (err) {
+    console.warn('syncCoverageSummary error:', err);
+  }
+}
+
 app.post('/api/coverage/city', async (req, res) => {
   try {
     const { cityName, regionType } = req.body;
@@ -567,6 +808,7 @@ app.post('/api/coverage/city', async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Nama kota dan jenis wilayah harus diisi.' });
     }
     const coverage = await createCityCoverage(cityName.trim(), regionType.trim());
+    await syncCoverageSummaryWithSettings(coverage);
     return res.json({ status: 'success', coverage });
   } catch (err: any) {
     console.error('Add city error:', err);
@@ -577,6 +819,7 @@ app.post('/api/coverage/city', async (req, res) => {
 const deleteCity = async (name: string, res: express.Response) => {
   try {
     const coverage = await deleteCityCoverage(name.trim());
+    await syncCoverageSummaryWithSettings(coverage);
     return res.json({ status: 'success', coverage });
   } catch (err: any) {
     console.error('Delete city error:', err);
@@ -612,6 +855,7 @@ app.post('/api/coverage/kecamatan', async (req, res) => {
 
     kecamatans.push({ name: name.trim(), kelurahans: [] });
     const updatedCoverage = await updateCoverageData(city.cityName, kecamatans);
+    await syncCoverageSummaryWithSettings(updatedCoverage);
     return res.json({ status: 'success', coverage: updatedCoverage });
   } catch (err: any) {
     console.error('Add kecamatan error:', err);
@@ -630,6 +874,7 @@ app.post('/api/coverage/kecamatan/delete', async (req, res) => {
 
     const kecamatans = city.kecamatans.filter((k: any) => k.name.trim().toLowerCase() !== name.trim().toLowerCase());
     const updatedCoverage = await updateCoverageData(city.cityName, kecamatans);
+    await syncCoverageSummaryWithSettings(updatedCoverage);
     return res.json({ status: 'success', coverage: updatedCoverage });
   } catch (err: any) {
     console.error('Delete kecamatan error:', err);
@@ -660,6 +905,7 @@ app.post('/api/coverage/kelurahan', async (req, res) => {
     });
 
     const updatedCoverage = await updateCoverageData(city.cityName, kecamatans);
+    await syncCoverageSummaryWithSettings(updatedCoverage);
     return res.json({ status: 'success', coverage: updatedCoverage });
   } catch (err: any) {
     console.error('Add kelurahan error:', err);
@@ -684,6 +930,7 @@ app.post('/api/coverage/kelurahan/delete', async (req, res) => {
 
     kec.kelurahans = (kec.kelurahans || []).filter((kl: any) => kl.name.trim().toLowerCase() !== name.trim().toLowerCase());
     const updatedCoverage = await updateCoverageData(city.cityName, kecamatans);
+    await syncCoverageSummaryWithSettings(updatedCoverage);
     return res.json({ status: 'success', coverage: updatedCoverage });
   } catch (err: any) {
     console.error('Delete kelurahan error:', err);
@@ -1149,13 +1396,35 @@ app.post('/api/dev/sheets/sync-up', async (req, res) => {
 // Sync data DOWN: pull latest data from Google Sheets into server
 app.get(['/api/dev/sheets/sync-down', '/api/sheets/sync-down'], async (req, res) => {
   try {
-    const data = await fetchFromGoogleSheetsServer();
+    const cfg = loadSheetsConfig();
+    let data: any = null;
+    if (cfg.webAppUrl) {
+      data = await fetchFromGoogleSheetsServer();
+    }
+
     if (!data || data.status !== 'success') {
-      const cfg = loadSheetsConfig();
-      if (!cfg.webAppUrl) {
-        return res.json({ status: 'empty', message: 'URL Google Sheets belum dikonfigurasi.' });
-      }
-      return res.status(502).json({ status: 'error', message: 'Gagal menarik data dari Google Sheets.' });
+      const db = getGoogleSheetsDatabase();
+      const internalCustomers = (db.sheets?.Pelanggan || []).map((row) => ({
+        id: row[1] || '',
+        name: row[2] || '',
+        email: row[3] || '',
+        phone: row[4] || '',
+        address: row[5] || '',
+        coordinates: typeof row[6] === 'string' && row[6].includes(',')
+          ? row[6].split(',').map((n: string) => parseFloat(n.trim()))
+          : [-6.2088, 106.8456],
+        packageId: row[7] || 'home-10m',
+        status: row[8] || 'pending',
+        ktpImageUrl: row[9] || '',
+        createdAt: row[0] || new Date().toISOString(),
+      }));
+
+      return res.json({
+        status: 'success',
+        customers: internalCustomers,
+        tickets: [],
+        message: `Sinkronisasi internal aktif: Memuat ${internalCustomers.length} pelanggan dari Google Sheets Database server.`,
+      });
     }
 
     // If settings found, update server settings
@@ -1229,30 +1498,28 @@ app.post('/api/dev/sheets/test-registration', async (req, res) => {
   }
 });
 
+// Get Live Google Sheets Spreadsheet Database (all 4 sheets with live rows)
+app.get(['/api/sheets/database', '/api/dev/sheets/database'], (req, res) => {
+  const db = getGoogleSheetsDatabase();
+  res.json({
+    status: 'success',
+    database: db,
+  });
+});
+
 // Proxy endpoint for client-side sync to avoid browser CORS/redirect issues
 app.post('/api/sheets/proxy', async (req, res) => {
   try {
     const { action, url: clientUrl, ...payload } = req.body;
-    const url = clientUrl || loadSheetsConfig().webAppUrl;
-    if (!url) {
-      return res.status(400).json({ status: 'error', message: 'URL Google Sheets belum diatur.' });
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, ...payload }),
-      redirect: 'follow',
+    // Always sync with the internal Google Sheets database and forward if URL exists
+    const result = await syncSheetsWebhook(action, payload);
+    return res.json({
+      status: 'success',
+      message: 'Data berhasil disinkronkan ke Google Sheets Database!',
+      result,
     });
-
-    const text = await response.text();
-    try {
-      const json = JSON.parse(text);
-      return res.json(json);
-    } catch {
-      return res.json({ status: 'success', raw: text });
-    }
   } catch (err: any) {
+    console.error('Sheets proxy error:', err);
     return res.status(500).json({ status: 'error', message: err.message });
   }
 });

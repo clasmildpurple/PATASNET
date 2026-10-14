@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import Logo from './Logo';
 import ImagePreviewModal from './ImagePreviewModal';
+import GoogleSpreadsheetViewer from './GoogleSpreadsheetViewer';
 import { GOOGLE_APPS_SCRIPT_TEMPLATE } from '../lib/googleSheetsIntegration';
 import { CustomerUser, PaymentRecord, SupportTicket } from '../types';
 
@@ -632,9 +633,15 @@ export default function DeveloperDashboard({
 
                     <button
                       type="button"
-                      onClick={handleTestConnection}
-                      disabled={testingConnection || !sheetsForm.webAppUrl}
-                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs transition flex items-center gap-1.5"
+                      onClick={() => {
+                        if (!sheetsForm.webAppUrl.trim()) {
+                          setErrorMessage('Masukkan URL Web App Google Apps Script Anda terlebih dahulu, atau uji sinkronisasi data internal di tombol bawah.');
+                          return;
+                        }
+                        handleTestConnection();
+                      }}
+                      disabled={testingConnection}
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer active:scale-95"
                     >
                       <Zap className={`w-4 h-4 ${testingConnection ? 'animate-spin text-amber-400' : 'text-amber-400'}`} />
                       <span>{testingConnection ? 'Menguji...' : 'Test & Ping Webhook'}</span>
@@ -652,8 +659,8 @@ export default function DeveloperDashboard({
                     <button
                       type="button"
                       onClick={handleSyncDataDown}
-                      disabled={syncingDataDown || !sheetsForm.webAppUrl}
-                      className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl text-left transition flex items-start gap-3 group"
+                      disabled={syncingDataDown}
+                      className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl text-left transition flex items-start gap-3 group active:scale-98 cursor-pointer"
                     >
                       <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl group-hover:scale-110 transition">
                         <ArrowDownCircle className={`w-5 h-5 ${syncingDataDown ? 'animate-bounce' : ''}`} />
@@ -667,8 +674,8 @@ export default function DeveloperDashboard({
                     <button
                       type="button"
                       onClick={handleSyncDataUp}
-                      disabled={syncingDataUp || !sheetsForm.webAppUrl}
-                      className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl text-left transition flex items-start gap-3 group"
+                      disabled={syncingDataUp}
+                      className="p-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-2xl text-left transition flex items-start gap-3 group active:scale-98 cursor-pointer"
                     >
                       <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-110 transition">
                         <ArrowUpCircle className={`w-5 h-5 ${syncingDataUp ? 'animate-bounce' : ''}`} />
@@ -684,8 +691,8 @@ export default function DeveloperDashboard({
                     <button
                       type="button"
                       onClick={handleTestRegistration}
-                      disabled={testingRegistration || !sheetsForm.webAppUrl}
-                      className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-950 to-slate-900 border border-emerald-800/60 hover:border-emerald-600 text-emerald-300 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2"
+                      disabled={testingRegistration}
+                      className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-950 to-slate-900 border border-emerald-800/60 hover:border-emerald-600 text-emerald-300 font-bold rounded-xl text-xs transition flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5" />
                       <span>{testingRegistration ? 'Mengirim simulasi...' : 'Uji Pendaftaran Simulasi & Upload KTP ke Google Drive'}</span>
@@ -780,11 +787,17 @@ export default function DeveloperDashboard({
         {/* TAB 2: LIVE SPREADSHEET TABLES */}
         {activeTab === 'sheets_tables' && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-800">
+            {/* Live Interactive Spreadsheet Grid */}
+            <GoogleSpreadsheetViewer
+              webAppUrl={sheetsForm.webAppUrl}
+              onRefreshParent={fetchDatabaseAndConfig}
+            />
+
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-4 pb-4 border-b border-slate-800">
               <div>
-                <h2 className="text-xl font-black text-white">Live Data Database Google Sheets</h2>
+                <h2 className="text-base font-black text-white">Detail Tabel Database Sistem</h2>
                 <p className="text-xs text-slate-400">
-                  Data yang tersimpan di sistem dan tersinkronisasi 2-arah dengan Google Spreadsheet & Google Drive.
+                  Data individual yang tersimpan di sistem dan tersinkronisasi 2-arah dengan Google Spreadsheet & Google Drive.
                 </p>
               </div>
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
+import L from '../lib/leafletSafe';
 import { Search, MapPin } from 'lucide-react';
 
 interface MapPickerProps {
@@ -37,49 +37,69 @@ export default function MapPicker({ onLocationSelect, initialCoords }: MapPicker
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    const map = L.map(mapContainerRef.current, {
-      zoomControl: true,
-      scrollWheelZoom: true,
-    }).setView(selectedCoords, 13);
+    let resizeObserver: ResizeObserver | null = null;
+    try {
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: true,
+        scrollWheelZoom: true,
+      }).setView(selectedCoords, 13);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
 
-    const marker = L.marker(selectedCoords, { draggable: true }).addTo(map);
-    markerRef.current = marker;
-    mapRef.current = map;
+      const marker = L.marker(selectedCoords, { draggable: true }).addTo(map);
+      markerRef.current = marker;
+      mapRef.current = map;
 
-    // Trigger callback initially
-    onLocationSelect(selectedCoords[0], selectedCoords[1]);
+      // Trigger callback initially
+      onLocationSelect(selectedCoords[0], selectedCoords[1]);
 
-    // Handle marker drag
-    marker.on('dragend', () => {
-      const position = marker.getLatLng();
-      setSelectedCoords([position.lat, position.lng]);
-      onLocationSelect(position.lat, position.lng);
-      reverseGeocode(position.lat, position.lng);
-    });
+      // Handle marker drag
+      marker.on('dragend', () => {
+        const position = marker.getLatLng();
+        setSelectedCoords([position.lat, position.lng]);
+        onLocationSelect(position.lat, position.lng);
+        reverseGeocode(position.lat, position.lng);
+      });
 
-    // Handle map click
-    map.on('click', (e) => {
-      const { lat, lng } = e.latlng;
-      marker.setLatLng([lat, lng]);
-      setSelectedCoords([lat, lng]);
-      onLocationSelect(lat, lng);
-      reverseGeocode(lat, lng);
-    });
+      // Handle map click
+      map.on('click', (e) => {
+        const { lat, lng } = e.latlng;
+        marker.setLatLng([lat, lng]);
+        setSelectedCoords([lat, lng]);
+        onLocationSelect(lat, lng);
+        reverseGeocode(lat, lng);
+      });
 
-    // Handle container resize observer
-    const resizeObserver = new ResizeObserver(() => {
-      map.invalidateSize();
-    });
-    resizeObserver.observe(mapContainerRef.current);
+      // Handle container resize observer
+      if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+        resizeObserver = new ResizeObserver(() => {
+          if (mapRef.current) {
+            try {
+              mapRef.current.invalidateSize();
+            } catch {}
+          }
+        });
+        resizeObserver.observe(mapContainerRef.current);
+      }
+    } catch (err) {
+      console.warn('Map initialization caught error:', err);
+    }
 
     return () => {
-      resizeObserver.disconnect();
+      if (resizeObserver) {
+        try {
+          resizeObserver.disconnect();
+        } catch {}
+      }
       if (mapRef.current) {
-        mapRef.current.remove();
+        try {
+          mapRef.current.stop();
+          mapRef.current.remove();
+        } catch (e) {
+          console.warn('Map unmount cleanup ignored:', e);
+        }
         mapRef.current = null;
       }
     };

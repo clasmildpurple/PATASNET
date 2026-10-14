@@ -96,7 +96,12 @@ export default function App() {
         const data = await response.json();
         const settings = data.settings || data;
         if (settings) {
-          setCompanySettings((prev) => ({ ...prev, ...settings }));
+          setCompanySettings((prev) => ({
+            ...prev,
+            ...settings,
+            logoUrl: settings.logoUrl || prev.logoUrl,
+            qrisUrl: settings.qrisUrl || prev.qrisUrl,
+          }));
           saveLocalSettings(settings);
         }
       }
@@ -104,11 +109,16 @@ export default function App() {
       console.warn('Failed to fetch company settings:', err);
     }
 
-    // 4. Also check Google Sheets directly
+    // 4. Also check Google Sheets directly (preserving logo and QRIS)
     try {
       const sheetData = await fetchFromGoogleSheets();
       if (sheetData && sheetData.settings) {
-        setCompanySettings((prev) => ({ ...prev, ...sheetData.settings }));
+        setCompanySettings((prev) => ({
+          ...prev,
+          ...sheetData.settings,
+          logoUrl: sheetData.settings.logoUrl || prev.logoUrl,
+          qrisUrl: sheetData.settings.qrisUrl || prev.qrisUrl,
+        }));
         saveLocalSettings(sheetData.settings);
       }
     } catch (gErr) {
@@ -164,7 +174,12 @@ export default function App() {
         setAdminCustomers(sheetData.customers);
         if (sheetData.tickets) setAdminSupportTickets(sheetData.tickets);
         if (sheetData.settings && sheetData.settings.name) {
-          setCompanySettings((prev) => ({ ...prev, ...sheetData.settings }));
+          setCompanySettings((prev) => ({
+            ...prev,
+            ...sheetData.settings,
+            logoUrl: sheetData.settings.logoUrl || prev.logoUrl,
+            qrisUrl: sheetData.settings.qrisUrl || prev.qrisUrl,
+          }));
         }
         return;
       }
@@ -537,7 +552,7 @@ export default function App() {
     setAdminCustomers((prev) =>
       prev.map((c) => {
         if (c.id === userId) {
-          const payments = c.payments.map((p) =>
+          const payments = (c.payments || []).map((p) =>
             p.id === paymentId ? { ...p, status: 'paid' as const } : p
           );
           return { ...c, payments, status: 'active' as const };
@@ -563,7 +578,7 @@ export default function App() {
     setAdminCustomers((prev) =>
       prev.map((c) => {
         if (c.id === userId) {
-          const payments = c.payments.map((p) =>
+          const payments = (c.payments || []).map((p) =>
             p.id === paymentId ? { ...p, status: 'unpaid' as const } : p
           );
           return { ...c, payments };
@@ -1137,6 +1152,7 @@ export default function App() {
             onLogout={handleLogout}
             companyName={companySettings.name}
             logoUrl={companySettings.logoUrl}
+            companySettings={companySettings}
           />
         )}
 

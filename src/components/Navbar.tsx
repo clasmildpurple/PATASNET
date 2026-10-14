@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Wifi, LogIn, User, LayoutDashboard, LogOut, PhoneCall, Menu, X, RotateCw } from 'lucide-react';
 import { CustomerUser, CompanySettings } from '../types';
 import Logo from './Logo';
@@ -31,8 +31,28 @@ export default function Navbar({
 
   const currentCompanyName = companyName || companySettings?.name || 'Patas Net WiFi';
   const currentLogoUrl = logoUrl || companySettings?.logoUrl;
-  const coverageText = companySettings?.coverageText || '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan';
+  const [liveCoverageText, setLiveCoverageText] = useState(companySettings?.coverageText || '5 Kota/Kabupaten, 13 Kecamatan, 40 Kelurahan');
   const contactPhone = companySettings?.phoneNumber || companySettings?.whatsappNumber || '+62 899-3299-977';
+
+  useEffect(() => {
+    if (companySettings?.coverageText) {
+      setLiveCoverageText(companySettings.coverageText);
+    }
+  }, [companySettings?.coverageText]);
+
+  useEffect(() => {
+    fetch('/api/coverage')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const totalCities = data.length;
+          const totalKec = data.reduce((acc: number, c: any) => acc + (c.kecamatans?.length || 0), 0);
+          const totalKel = data.reduce((acc: number, c: any) => acc + (c.kecamatans?.reduce((kAcc: number, k: any) => kAcc + (k.kelurahans?.length || 0), 0) || 0), 0);
+          setLiveCoverageText(`${totalCities} Kota/Kabupaten, ${totalKec} Kecamatan, ${totalKel} Kelurahan`);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const scrollToSection = (sectionId: string) => {
     setMobileMenuOpen(false);
@@ -53,7 +73,7 @@ export default function Navbar({
       <div className="bg-blue-900 text-white text-xs py-1.5 px-3 sm:px-4">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-1 font-medium text-center sm:text-left">
           <div className="flex items-center gap-2 text-[10px] sm:text-xs tracking-tight">
-            <span>AREA CAKUPAN: <strong className="text-yellow-400 font-bold">{coverageText}</strong></span>
+            <span>AREA CAKUPAN: <strong className="text-yellow-400 font-bold">{liveCoverageText}</strong></span>
           </div>
           <div className="flex items-center gap-2 text-[10px] sm:text-xs">
             <span className="flex items-center gap-1.5">

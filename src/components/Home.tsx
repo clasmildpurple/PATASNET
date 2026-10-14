@@ -128,6 +128,7 @@ export default function Home({ onSelectPackage, onNavigate, companyName, logoUrl
     };
   };
   const coverageStats = parseCoverageStats(companySettings?.coverageText);
+  const [coverageData, setCoverageData] = useState<any[]>([]);
 
   useEffect(() => {
     fetch('/api/packages')
@@ -147,7 +148,27 @@ export default function Home({ onSelectPackage, onNavigate, companyName, logoUrl
         }
       })
       .catch(() => {});
+
+    fetch('/api/coverage')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setCoverageData(data);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Compute live coverage numbers from database or fallback to settings
+  const liveCitiesCount = coverageData.length > 0 ? coverageData.length : parseInt(coverageStats.cities) || 5;
+  const liveDistrictsCount = coverageData.length > 0
+    ? coverageData.reduce((acc, c) => acc + (c.kecamatans?.length || 0), 0)
+    : parseInt(coverageStats.districts) || 13;
+  const liveSubdistrictsCount = coverageData.length > 0
+    ? coverageData.reduce((acc, c) => acc + (c.kecamatans?.reduce((kAcc: number, k: any) => kAcc + (k.kelurahans?.length || 0), 0) || 0), 0)
+    : parseInt(coverageStats.subdistricts) || 40;
+
+  const preciseCoverageText = `${liveCitiesCount} Kota/Kabupaten, ${liveDistrictsCount} Kecamatan, ${liveSubdistrictsCount} Kelurahan`;
 
   // Form states
   const [contactName, setContactName] = useState('');
@@ -568,11 +589,11 @@ export default function Home({ onSelectPackage, onNavigate, companyName, logoUrl
           <div className="lg:col-span-5 space-y-5">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-200/80 rounded-full">
               <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-              <span className="text-[11px] text-blue-700 font-bold uppercase tracking-wider">{currentCoverageText}</span>
+              <span className="text-[11px] text-blue-700 font-bold uppercase tracking-wider">{preciseCoverageText}</span>
             </div>
             <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-950">Cakupan Wilayah {currentCompanyName}</h2>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Kami terus memperluas jaringan jalur serat optik kami ({currentCoverageText}) untuk memastikan setiap warga dapat menikmati jaringan internet cepat berkualitas tinggi tanpa hambatan.
+              Kami terus memperluas jaringan jalur serat optik kami ({preciseCoverageText}) untuk memastikan setiap warga dapat menikmati jaringan internet cepat berkualitas tinggi tanpa hambatan.
             </p>
             <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3 text-xs text-blue-800">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -582,17 +603,17 @@ export default function Home({ onSelectPackage, onNavigate, companyName, logoUrl
 
           <div className="lg:col-span-7 grid grid-cols-3 gap-4 text-center">
             <div className="bg-white/70 backdrop-blur p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-1">
-              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{coverageStats.cities}</p>
+              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{liveCitiesCount}</p>
               <p className="font-bold text-[11px] sm:text-xs text-slate-900 leading-tight">Kota / Kabupaten</p>
               <p className="text-[10px] text-slate-400">Aktif Terlayani</p>
             </div>
             <div className="bg-white/70 backdrop-blur p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-1">
-              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{coverageStats.districts}</p>
+              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{liveDistrictsCount}</p>
               <p className="font-bold text-[11px] sm:text-xs text-slate-900 leading-tight">Kecamatan</p>
               <p className="text-[10px] text-slate-400">Jalur Terkoneksi</p>
             </div>
             <div className="bg-white/70 backdrop-blur p-5 sm:p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-1">
-              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{coverageStats.subdistricts}</p>
+              <p className="text-3xl sm:text-4xl font-black text-blue-600 font-mono">{liveSubdistrictsCount}</p>
               <p className="font-bold text-[11px] sm:text-xs text-slate-900 leading-tight">Kelurahan</p>
               <p className="text-[10px] text-slate-400">Titik Distribusi ODN</p>
             </div>

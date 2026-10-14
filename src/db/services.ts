@@ -636,6 +636,11 @@ function loadExtraCompanySettings() {
     instagramUrl: 'https://instagram.com/patasnet.id',
     facebookUrl: 'https://facebook.com/patasnet.id',
     youtubeUrl: 'https://youtube.com/@patasnet',
+    qrisUrl: '',
+    qrisMerchantName: 'PATAS NET - PT AMANUSA TELEMEDIA',
+    qrisNmid: 'ID1020039281747',
+    qrisAutoVerify: true,
+    qrisInstructions: 'Buka m-Banking atau e-Wallet Anda (BCA, Mandiri, BRI, BNI, GoPay, OVO, DANA, ShopeePay), scan barcode QRIS, masukkan nominal sesuai tagihan, lalu klik tombol Konfirmasi Pembayaran QRIS.',
   };
 }
 
@@ -674,7 +679,7 @@ export async function getCompanySettings() {
       address: s.address,
       logoText: s.logoText,
       themeColor: s.themeColor,
-      logoUrl: s.logoUrl || '',
+      logoUrl: s.logoUrl || extra.logoUrl || '',
       promos: JSON.parse(s.promos || '[]') as string[],
       ...extra,
     };
@@ -684,7 +689,7 @@ export async function getCompanySettings() {
       address: 'Jl. Raya Kebayoran Baru No. 12, Jakarta Selatan, DKI Jakarta 12110',
       logoText: 'PATAS NET',
       themeColor: '#2563eb',
-      logoUrl: '',
+      logoUrl: extra.logoUrl || '',
       promos: [] as string[],
       ...extra,
     };
@@ -707,6 +712,11 @@ export async function updateCompanySettings(data: {
   instagramUrl?: string;
   facebookUrl?: string;
   youtubeUrl?: string;
+  qrisUrl?: string;
+  qrisMerchantName?: string;
+  qrisNmid?: string;
+  qrisAutoVerify?: boolean;
+  qrisInstructions?: string;
 }) {
   saveExtraCompanySettings(data);
   try {
@@ -732,6 +742,33 @@ export async function updateCompanySettings(data: {
   } catch (error) {
     console.error('updateCompanySettings fallback to disk:', error);
     return await getCompanySettings();
+  }
+}
+
+export async function processQrisPayment(userId: string, paymentId: string) {
+  try {
+    const txId = `QRIS-${Math.floor(100000 + Math.random() * 900000)}`;
+    try {
+      await db.update(payments).set({
+        status: 'paid',
+        method: 'QRIS',
+        transactionId: txId,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      }).where(eq(payments.id, paymentId));
+
+      const cust = await db.select().from(customers).where(eq(customers.id, userId));
+      if (cust.length > 0 && cust[0].status === 'pending') {
+        await db.update(customers).set({ status: 'active' }).where(eq(customers.id, userId));
+      }
+    } catch (dbErr) {
+      console.warn('PostgreSQL QRIS payment update warning (fallback mode active):', dbErr);
+    }
+
+    const updated = await getCustomerById(userId);
+    return updated;
+  } catch (error) {
+    console.error('processQrisPayment failed:', error);
+    throw new Error('Gagal memproses pembayaran QRIS.', { cause: error });
   }
 }
 

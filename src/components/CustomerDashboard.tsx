@@ -22,14 +22,18 @@ import {
   Clock,
   Eye,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  QrCode,
+  Zap,
+  Sparkles
 } from 'lucide-react';
-import { CustomerUser, PaymentRecord } from '../types';
+import { CustomerUser, PaymentRecord, CompanySettings } from '../types';
 import { PACKAGES } from './Home';
 import { jsPDF } from 'jspdf';
 import { generateCustomerPDFReport } from '../lib/pdfGenerator';
 import ImagePreviewModal from './ImagePreviewModal';
-import { submitLocalPaymentProof } from '../lib/clientFallback';
+import { submitLocalPaymentProof, submitLocalQrisPayment } from '../lib/clientFallback';
+import { generateDefaultQrisSvg } from '../lib/qrisUtils';
 import Logo from './Logo';
 
 interface CustomerDashboardProps {
@@ -38,6 +42,7 @@ interface CustomerDashboardProps {
   onLogout: () => void;
   companyName?: string;
   logoUrl?: string;
+  companySettings?: CompanySettings;
 }
 
 export default function CustomerDashboard({
@@ -45,7 +50,8 @@ export default function CustomerDashboard({
   onRefreshUser,
   onLogout,
   companyName,
-  logoUrl
+  logoUrl,
+  companySettings
 }: CustomerDashboardProps) {
   const [activeTab, setActiveTab] = useState<'home' | 'pay' | 'tickets' | 'profile'>('home');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -75,10 +81,11 @@ export default function CustomerDashboard({
   // Dynamic packages lookup with fallback
   const userPkg = PACKAGES.find((p) => p.id === user.packageId) || PACKAGES[0];
 
-  // Bill categories
-  const unpaidBills = user.payments.filter((p) => p.status === 'unpaid');
-  const pendingBills = user.payments.filter((p) => p.status === 'pending_verification');
-  const paidBills = user.payments.filter((p) => p.status === 'paid');
+  // Bill categories with null-safety
+  const userPayments = Array.isArray(user?.payments) ? user.payments : [];
+  const unpaidBills = userPayments.filter((p) => p && p.status === 'unpaid');
+  const pendingBills = userPayments.filter((p) => p && p.status === 'pending_verification');
+  const paidBills = userPayments.filter((p) => p && p.status === 'paid');
 
   const handleSupportTicketSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,6 +153,40 @@ export default function CustomerDashboard({
       }
     } catch (err) {
       console.warn('Backend payment verify failed, updated locally:', err);
+      setPaymentSuccess(true);
+      setProofImage('');
+      setSelectedPayment(null);
+      onRefreshUser();
+    } finally {
+      setSubmittingPayment(false);
+    }
+  };
+
+  const handleInstantQrisPayment = async () => {
+    if (!selectedPayment) return;
+
+    setSubmittingPayment(true);
+    // Instant local optimistic update
+    submitLocalQrisPayment(user.id, selectedPayment.id, companySettings?.qrisAutoVerify !== false);
+
+    try {
+      const response = await fetch('/api/payments/qris-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          paymentId: selectedPayment.id
+        })
+      });
+
+      if (response.ok) {
+        setPaymentSuccess(true);
+        setProofImage('');
+        setSelectedPayment(null);
+        onRefreshUser();
+      }
+    } catch (err) {
+      console.warn('Backend QRIS payment sync failed, saved locally:', err);
       setPaymentSuccess(true);
       setProofImage('');
       setSelectedPayment(null);
@@ -633,82 +674,191 @@ export default function CustomerDashboard({
 
                 {/* Account Details Box */}
                 {paymentMethod === 'qris' ? (
-                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 text-center space-y-2">
-                    <p className="font-bold text-xs text-slate-800">Scan QRIS Untuk Melakukan Pembayaran</p>
-                    <div className="w-36 h-36 bg-slate-900 mx-auto rounded-2xl border-4 border-white shadow-md flex items-center justify-center text-white p-2">
-                      <div className="border border-white/20 w-full h-full flex flex-col items-center justify-center font-mono text-[9px] uppercase tracking-widest text-center leading-tight">
-                        <span className="font-bold">QRIS CODE</span>
-                        <span>MOCKUP</span>
-                        <span className="text-blue-400 font-bold">{(companyName || 'PATAS NET').toUpperCase()}</span>
+                  <div className="bg-gradient-to-b from-emerald-50/50 to-slate-50 p-5 rounded-3xl border border-emerald-100 text-center space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-emerald-100/60">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="font-extrabold text-xs text-slate-800">QRIS Merchant Resmi</span>
                       </div>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                        Bebas Unggah Bukti
+                      </span>
                     </div>
-                    <p className="text-[10px] text-slate-400">Scan menggunakan aplikasi Mobile Banking atau e-Wallet kesayangan Anda.</p>
-                  </div>
-                ) : (
-                  <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl space-y-2">
-                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Informasi Nomor Rekening:</span>
-                    <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-blue-100">
-                      <div>
-                        <p className="font-bold text-xs text-slate-800">
-                          {paymentMethod === 'bca' ? 'BCA: 1234567890' : paymentMethod === 'mandiri' ? 'Mandiri: 9876543210' : 'BRI: 0021010888'}
-                        </p>
-                        <p className="text-[10px] text-slate-400">a/n PT Patas Net Telemedia</p>
-                      </div>
+
+                    {/* QR Code Container */}
+                    <div className="max-w-[240px] mx-auto bg-white p-3 rounded-2xl border-2 border-emerald-200 shadow-md">
+                      <img
+                        src={
+                          companySettings?.qrisUrl ||
+                          generateDefaultQrisSvg(
+                            companySettings?.qrisMerchantName || companyName || 'PATAS NET',
+                            companySettings?.qrisNmid || 'ID1020039281747',
+                            selectedPayment.amount
+                          )
+                        }
+                        alt="QRIS Barcode"
+                        className="w-full h-auto object-contain rounded-xl mx-auto cursor-pointer"
+                        onClick={() =>
+                          setPreviewModal({
+                            isOpen: true,
+                            imageUrl:
+                              companySettings?.qrisUrl ||
+                              generateDefaultQrisSvg(
+                                companySettings?.qrisMerchantName || companyName || 'PATAS NET',
+                                companySettings?.qrisNmid || 'ID1020039281747',
+                                selectedPayment.amount
+                              ),
+                            title: `QRIS - ${companySettings?.qrisMerchantName || companyName || 'PATAS NET'}`,
+                            subtitle: `NMID: ${companySettings?.qrisNmid || 'ID1020039281747'} | Tagihan: Rp ${selectedPayment.amount.toLocaleString('id-ID')}`,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="font-extrabold text-xs text-slate-900">
+                        {companySettings?.qrisMerchantName || `${companyName || 'PATAS NET'} - PT AMANUSA TELEMEDIA`}
+                      </p>
+                      <p className="text-[10px] font-mono text-slate-500">
+                        NMID: {companySettings?.qrisNmid || 'ID1020039281747'}
+                      </p>
+                      <p className="text-[11px] text-emerald-700 font-bold">
+                        Total Pembayaran: Rp {selectedPayment.amount.toLocaleString('id-ID')}
+                      </p>
+                    </div>
+
+                    <p className="text-[10px] text-slate-500 leading-relaxed max-w-md mx-auto">
+                      {companySettings?.qrisInstructions ||
+                        'Scan barcode QRIS di atas dengan aplikasi Mobile Banking atau e-Wallet apa pun. Setelah transaksi berhasil di aplikasi Anda, klik tombol Konfirmasi Pembayaran QRIS di bawah tanpa perlu unggah bukti transfer.'}
+                    </p>
+
+                    {/* Quick Download QRIS */}
+                    <div className="flex justify-center gap-2 pt-1">
+                      <a
+                        href={
+                          companySettings?.qrisUrl ||
+                          generateDefaultQrisSvg(
+                            companySettings?.qrisMerchantName || companyName || 'PATAS NET',
+                            companySettings?.qrisNmid || 'ID1020039281747',
+                            selectedPayment.amount
+                          )
+                        }
+                        download={`QRIS_${(companyName || 'PATAS_NET').replace(/\s+/g, '_')}_${selectedPayment.billingPeriod}.png`}
+                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[10px] font-bold shadow-2xs transition flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Unduh Barcode QRIS</span>
+                      </a>
+                    </div>
+
+                    {/* TOMBOL UTAMA QRIS: INSTANT CONFIRM WITHOUT PROOF */}
+                    <div className="pt-2 border-t border-emerald-100/80">
                       <button
                         type="button"
-                        onClick={() => handleCopyAccount(paymentMethod === 'bca' ? '1234567890' : paymentMethod === 'mandiri' ? '9876543210' : '0021010888')}
-                        className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-bold text-[10px] transition flex items-center gap-1"
+                        onClick={handleInstantQrisPayment}
+                        disabled={submittingPayment}
+                        className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white font-extrabold rounded-2xl text-xs transition shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        {copiedAccount ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedAccount ? 'Tersalin' : 'Salin Rekening'}</span>
+                        <Zap className="w-4 h-4 text-yellow-300 fill-yellow-300" />
+                        <span>
+                          {submittingPayment
+                            ? 'Memproses Pembayaran QRIS...'
+                            : 'Saya Sudah Bayar via QRIS (Konfirmasi Langsung Tanpa Unggah Bukti)'}
+                        </span>
                       </button>
+                      <p className="text-[10px] text-slate-400 mt-1.5">
+                        Tagihan langsung terverifikasi otomatis dan notifikasi WhatsApp diterbitkan.
+                      </p>
+                    </div>
+
+                    {/* Opsi Opsional untuk Lampirkan Screenshot jika pelanggan tetap ingin */}
+                    <div className="pt-2 text-left">
+                      <details className="text-[10px] text-slate-500">
+                        <summary className="font-bold text-slate-600 cursor-pointer hover:underline">
+                          + Atau ingin tetap melampirkan tangkapan layar pembayaran? (Opsional)
+                        </summary>
+                        <div className="mt-3 p-3 bg-white rounded-xl border border-slate-200 space-y-2">
+                          <label className="block font-bold text-slate-700">Lampirkan Screenshot Resi (Opsional):</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProofOfPaymentUpload}
+                            className="text-xs"
+                          />
+                          {proofImage && (
+                            <img src={proofImage} alt="Bukti Transfer" className="h-20 object-contain rounded-lg border border-slate-200" />
+                          )}
+                        </div>
+                      </details>
                     </div>
                   </div>
-                )}
-
-                {/* Upload proof of transfer */}
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-700 uppercase">Unggah Bukti Transfer / Resi Pembayaran *</label>
-                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-5 text-center bg-slate-50/50">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleProofOfPaymentUpload}
-                      className="hidden"
-                      id="payment-receipt-upload"
-                      required
-                    />
-                    {proofImage ? (
-                      <div className="space-y-2">
-                        <img src={proofImage} alt="Bukti Transfer" className="h-28 object-contain rounded-xl border border-slate-200 mx-auto" />
+                ) : (
+                  <>
+                    <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-2xl space-y-2">
+                      <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Informasi Nomor Rekening:</span>
+                      <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-blue-100">
+                        <div>
+                          <p className="font-bold text-xs text-slate-800">
+                            {paymentMethod === 'bca' ? 'BCA: 1234567890' : paymentMethod === 'mandiri' ? 'Mandiri: 9876543210' : 'BRI: 0021010888'}
+                          </p>
+                          <p className="text-[10px] text-slate-400">a/n PT Patas Net Telemedia</p>
+                        </div>
                         <button
                           type="button"
-                          onClick={() => setProofImage('')}
-                          className="text-[10px] text-red-500 font-bold hover:underline block mx-auto"
+                          onClick={() => handleCopyAccount(paymentMethod === 'bca' ? '1234567890' : paymentMethod === 'mandiri' ? '9876543210' : '0021010888')}
+                          className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-bold text-[10px] transition flex items-center gap-1"
                         >
-                          Hapus & Pilih Ulang
+                          {copiedAccount ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedAccount ? 'Tersalin' : 'Salin Rekening'}</span>
                         </button>
                       </div>
-                    ) : (
-                      <label htmlFor="payment-receipt-upload" className="cursor-pointer space-y-1.5 flex flex-col items-center py-2">
-                        <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-                          <Upload className="w-5 h-5" />
-                        </div>
-                        <span className="font-bold text-slate-700 block text-xs">Pilih Foto Struk / Bukti Transfer</span>
-                        <span className="text-[10px] text-slate-400">Format PNG, JPG, atau Tangkapan Layar M-Banking</span>
-                      </label>
-                    )}
-                  </div>
-                </div>
+                    </div>
 
-                <button
-                  type="submit"
-                  disabled={submittingPayment || !proofImage}
-                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  <span>{submittingPayment ? 'Mengirim Bukti ke Admin...' : 'Konfirmasi & Laporkan Pembayaran ke Admin'}</span>
-                </button>
+                    {/* Upload proof of transfer for Bank Transfer */}
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold text-slate-700 uppercase">Unggah Bukti Transfer / Resi Pembayaran *</label>
+                      <div className="border-2 border-dashed border-slate-200 rounded-2xl p-5 text-center bg-slate-50/50">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleProofOfPaymentUpload}
+                          className="hidden"
+                          id="payment-receipt-upload"
+                          required
+                        />
+                        {proofImage ? (
+                          <div className="space-y-2">
+                            <img src={proofImage} alt="Bukti Transfer" className="h-28 object-contain rounded-xl border border-slate-200 mx-auto" />
+                            <button
+                              type="button"
+                              onClick={() => setProofImage('')}
+                              className="text-[10px] text-red-500 font-bold hover:underline block mx-auto"
+                            >
+                              Hapus & Pilih Ulang
+                            </button>
+                          </div>
+                        ) : (
+                          <label htmlFor="payment-receipt-upload" className="cursor-pointer space-y-1.5 flex flex-col items-center py-2">
+                            <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                              <Upload className="w-5 h-5" />
+                            </div>
+                            <span className="font-bold text-slate-700 block text-xs">Pilih Foto Struk / Bukti Transfer</span>
+                            <span className="text-[10px] text-slate-400">Format PNG, JPG, atau Tangkapan Layar M-Banking</span>
+                          </label>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={submittingPayment || !proofImage}
+                      className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>{submittingPayment ? 'Mengirim Bukti ke Admin...' : 'Konfirmasi & Laporkan Pembayaran ke Admin'}</span>
+                    </button>
+                  </>
+                )}
               </form>
             </div>
           ) : null}
@@ -735,7 +885,7 @@ export default function CustomerDashboard({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {user.payments.map((pm) => (
+                  {userPayments.map((pm) => (
                     <tr key={pm.id} className="hover:bg-slate-50/50">
                       <td className="py-4 px-4 font-bold text-slate-900 flex items-center gap-2">
                         <Calendar className="w-3.5 h-3.5 text-slate-400" /> {pm.billingPeriod}

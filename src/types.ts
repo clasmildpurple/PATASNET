@@ -71,4 +71,9 @@ export interface CompanySettings {
   facebookUrl?: string;
   youtubeUrl?: string;
   promos?: string[];
+  qrisUrl?: string;
+  qrisMerchantName?: string;
+  qrisNmid?: string;
+  qrisAutoVerify?: boolean;
+  qrisInstructions?: string;
 }

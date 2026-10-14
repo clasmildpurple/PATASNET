@@ -147,6 +147,11 @@ export const DEFAULT_COMPANY_SETTINGS = {
   facebookUrl: 'https://facebook.com/patasnet.id',
   youtubeUrl: 'https://youtube.com/@patasnet',
   promos: [] as string[],
+  qrisUrl: '',
+  qrisMerchantName: 'PATAS NET - PT AMANUSA TELEMEDIA',
+  qrisNmid: 'ID1020039281747',
+  qrisAutoVerify: true,
+  qrisInstructions: 'Scan barcode QRIS dengan aplikasi Mobile Banking atau e-Wallet apa pun. Setelah bayar, klik Konfirmasi Pembayaran QRIS.',
 };
 
 export function getLocalSettings(): typeof DEFAULT_COMPANY_SETTINGS {
@@ -164,7 +169,15 @@ export function getLocalSettings(): typeof DEFAULT_COMPANY_SETTINGS {
 export function saveLocalSettings(settings: Partial<typeof DEFAULT_COMPANY_SETTINGS>): void {
   try {
     const current = getLocalSettings();
-    const updated = { ...current, ...settings };
+    const cleaned = { ...settings };
+    // Never overwrite an existing valid image (logoUrl / qrisUrl) with empty string or undefined
+    if (!cleaned.logoUrl && current.logoUrl) {
+      cleaned.logoUrl = current.logoUrl;
+    }
+    if (!cleaned.qrisUrl && current.qrisUrl) {
+      cleaned.qrisUrl = current.qrisUrl;
+    }
+    const updated = { ...current, ...cleaned };
     localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(updated));
     // Realtime sync to Google Sheets as Primary Database
     syncToGoogleSheets('update_settings', updated);
@@ -376,7 +389,10 @@ export function getLocalCustomers(): CustomerUser[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed.map((c: any) => ({
+          ...c,
+          payments: Array.isArray(c?.payments) ? c.payments : [],
+        }));
       }
     }
   } catch (e) {
@@ -389,7 +405,11 @@ export function getLocalCustomers(): CustomerUser[] {
 
 export function saveLocalCustomers(list: CustomerUser[]): void {
   try {
-    localStorage.setItem(STORAGE_CUSTOMERS_KEY, JSON.stringify(list));
+    const safeList = (list || []).map((c: any) => ({
+      ...c,
+      payments: Array.isArray(c?.payments) ? c.payments : [],
+    }));
+    localStorage.setItem(STORAGE_CUSTOMERS_KEY, JSON.stringify(safeList));
   } catch (e) {
     console.warn('Failed to save local customers to storage:', e);
   }
@@ -494,7 +514,7 @@ export function updateLocalPaymentStatus(customerId: string, paymentId: string, 
 
   const newCustomers = customers.map((c) => {
     if (c.id === customerId) {
-      const newPayments = c.payments.map((p) => {
+      const newPayments = (c.payments || []).map((p) => {
         if (p.id === paymentId) {
           updated = true;
           return { ...p, status: newStatus };
@@ -522,7 +542,7 @@ export function submitLocalPaymentProof(customerId: string, paymentId: string, p
 
   const newCustomers = customers.map((c) => {
     if (c.id === customerId) {
-      const newPayments = c.payments.map((p) => {
+      const newPayments = (c.payments || []).map((p) => {
         if (p.id === paymentId) {
           updated = true;
           return {
@@ -546,6 +566,49 @@ export function submitLocalPaymentProof(customerId: string, paymentId: string, p
       paymentId,
       proofBase64: proofUrl,
       method: method || 'Transfer Bank',
+    });
+  }
+  return updated;
+}
+
+// Instant QRIS payment confirmation without requiring proof receipt upload
+export function submitLocalQrisPayment(customerId: string, paymentId: string, autoVerify = true): boolean {
+  const customers = getLocalCustomers();
+  let updated = false;
+  const txId = `QRIS-${Math.floor(100000 + Math.random() * 900000)}`;
+
+  const newCustomers = customers.map((c) => {
+    if (c.id === customerId) {
+      const newPayments = (c.payments || []).map((p) => {
+        if (p.id === paymentId) {
+          updated = true;
+          return {
+            ...p,
+            status: (autoVerify ? 'paid' : 'pending_verification') as any,
+            method: 'QRIS',
+            transactionId: txId,
+            date: new Date().toISOString().substring(0, 10),
+          };
+        }
+        return p;
+      });
+      // Also automatically set customer to active if they were pending
+      return {
+        ...c,
+        status: (c.status === 'pending' && autoVerify ? 'active' : c.status) as any,
+        payments: newPayments,
+      };
+    }
+    return c;
+  });
+
+  if (updated) {
+    saveLocalCustomers(newCustomers);
+    syncToGoogleSheets('approve_payment', {
+      userId: customerId,
+      paymentId,
+      method: 'QRIS',
+      transactionId: txId,
     });
   }
   return updated;
